@@ -4609,10 +4609,30 @@ static int decon_ioctl(struct fb_info *info, unsigned int cmd,
 
 		mode = &lcd_info->display_mode[display_mode.index].mode;
 		memcpy(&display_mode, mode, sizeof(display_mode));
-
-		decon_info("display mode[%d] : %dx%d@%d(%dx%dmm)\n",
+		/*
+		 * This is very ugly and I hate it. It is not portable and the
+		 * numbers are sticked directly here. However the proper code
+		 * that I added in common_panel_drv (kanged from exynos2100) that
+		 * dinamically computes groups according to the resolutions parsed
+		 * from device tree does not work correctly. Resolution groups
+		 * are found and wrriten in to the display_mode struct, however
+		 * for an unknown reason, when we try to read those datas here
+		 * we only find zero. As a consequence we communicate wrong data
+		 * to user space. Since I do not have more time to deal with this
+		 * madness let's just hand-wire the correct numbers here and call
+		 * it a day.
+		 */
+		if ((display_mode.index == 0 || display_mode.index == 1)) {
+			display_mode.group = 0;
+		} else if ((display_mode.index == 2 || display_mode.index == 3 
+			|| display_mode.index == 4 || display_mode.index == 5 )) {
+				display_mode.group = 1;
+		} else {
+			display_mode.group = 2;
+		}
+		decon_info("display mode[%d] : %dx%d@%d(%dx%dmm) group: %d\n",
 				display_mode.index, mode->width, mode->height,
-				mode->fps, mode->mm_width, mode->mm_height);
+				mode->fps, mode->mm_width, mode->mm_height, mode->group);
 
 		if (copy_to_user((void __user *)arg,
 					&display_mode, _IOC_SIZE(cmd))) {
