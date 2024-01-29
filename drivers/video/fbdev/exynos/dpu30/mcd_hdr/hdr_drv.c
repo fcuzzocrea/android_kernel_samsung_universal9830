@@ -28,7 +28,7 @@
 
 
 /*log level for hdr default : 6*/
-int hdr_log_level = 7;
+int hdr_log_level = 0;
 
 static unsigned int __eq_to_gammut(unsigned int eq_mode)
 {

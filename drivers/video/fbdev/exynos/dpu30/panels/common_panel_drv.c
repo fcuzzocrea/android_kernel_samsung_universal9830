@@ -20,7 +20,7 @@
 
 #include "exynos_panel_drv.h"
 
-int dpu_panel_log_level = 7;
+int dpu_panel_log_level = 0;
 
 struct exynos_panel_device *panel_drvdata[MAX_PANEL_DRV_SUPPORT];
 EXPORT_SYMBOL(panel_drvdata);
