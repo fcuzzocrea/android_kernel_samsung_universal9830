@@ -60,17 +60,17 @@
 
 
 
-int decon_log_level = 6;
+int decon_log_level = 0;
 module_param(decon_log_level, int, 0644);
-int dpu_bts_log_level = 6;
+int dpu_bts_log_level = 0;
 module_param(dpu_bts_log_level, int, 0644);
-int win_update_log_level = 6;
+int win_update_log_level = 0;
 module_param(win_update_log_level, int, 0644);
-int dpu_mres_log_level = 6;
+int dpu_mres_log_level = 0;
 module_param(dpu_mres_log_level, int, 0644);
-int dpu_fence_log_level = 6;
+int dpu_fence_log_level = 0;
 module_param(dpu_fence_log_level, int, 0644);
-int dpu_dma_buf_log_level = 6;
+int dpu_dma_buf_log_level = 0;
 module_param(dpu_dma_buf_log_level, int, 0644);
 int decon_systrace_enable;
 
@@ -1704,11 +1704,11 @@ static unsigned int decon_map_ion_handle(struct decon_device *decon,
 		struct device *dev, struct decon_dma_buf_data *dma,
 		struct dma_buf *buf, int win_no)
 {
-//debug DMA_BUF
+#ifdef DEBUG_DMA_BUF_LEAK
 	struct dma_buf_attachment *attach_obj;
 	struct dma_buf *dma_buf;
 	int attach_count = 0;
-//for debug
+#endif
 #if defined(CONFIG_EXYNOS_IOVMM)
 	struct exynos_iovmm *vmm;
 #endif
@@ -1779,11 +1779,11 @@ static unsigned int decon_map_ion_handle(struct decon_device *decon,
 	if (IS_ERR_VALUE(dma->dma_addr)) {
 		decon_err("ion_iovmm_map() failed: %pa\n", &dma->dma_addr);
 		decon_err("remaining_frame : %d", atomic_read(&decon->up.remaining_frame));
-
+#ifdef DEBUG_DMA_BUF_LEAK
 		decon_info("attached count : %d\n", attach_count);
 		decon_info("leak cnt : %d\n", decon->leak_cnt);
 		print_dma_leak_info(decon);
-
+#endif
 		BUG();
 		goto err_iovmm_map;
 	}
@@ -2997,6 +2997,15 @@ static void decon_update_fps(struct decon_device *decon,
 	decon_systrace(decon, 'B', "decon_update_fps", 0);
 }
 
+static void decon_update_mres(struct decon_device *decon,
+			struct decon_reg_data *regs)
+{
+	decon_exit_hiber(decon);
+	decon_systrace(decon, 'B', "decon_update_mres", 1);
+	dpu_update_mres_lcd_info(decon, regs);
+	dpu_set_mres_config(decon, regs);
+	decon_systrace(decon, 'B', "decon_update_mres", 0);
+}
 
 #define GET_WINCONFIG_TIME(regs)	(ktime_to_us(ktime_sub(ktime_get(), regs->create_time)))
 
@@ -4206,6 +4215,8 @@ static int decon_ioctl(struct fb_info *info, unsigned int cmd,
 #ifdef CONFIG_EXYNOS_SET_ACTIVE
 	struct exynos_display_mode display_mode;
 	struct exynos_display_mode *mode;
+	//struct exynos_display_mode *previous_mode;
+	//unsigned int current_display_mode_index;
 	struct decon_reg_data decon_regs;
 #endif
 	int ret = 0;
@@ -4622,13 +4633,10 @@ static int decon_ioctl(struct fb_info *info, unsigned int cmd,
 		 * madness let's just hand-wire the correct numbers here and call
 		 * it a day.
 		 */
-		if ((display_mode.index == 0 || display_mode.index == 1)) {
+		if (display_mode.index == 0) {
 			display_mode.group = 0;
-		} else if ((display_mode.index == 2 || display_mode.index == 3 
-			|| display_mode.index == 4 || display_mode.index == 5 )) {
-				display_mode.group = 1;
 		} else {
-			display_mode.group = 2;
+			display_mode.group = 1;
 		}
 		decon_info("display mode[%d] : %dx%d@%d(%dx%dmm) group: %d\n",
 				display_mode.index, mode->width, mode->height,
@@ -4656,33 +4664,22 @@ static int decon_ioctl(struct fb_info *info, unsigned int cmd,
 			break;
 		}
 
-		mode = &lcd_info->display_mode[display_mode.index].mode;
-		memcpy(&display_mode, mode, sizeof(display_mode));
-
 		if (!IS_DECON_OFF_STATE(decon)) {
 			memset(&decon_regs, 0, sizeof(struct decon_reg_data));
-
 			decon_regs.mode_update = true;
 			decon_regs.lcd_width = mode->width;
 			decon_regs.lcd_height = mode->height;
 			decon_regs.mode_idx = display_mode.index;
 			decon_regs.vrr_config.fps = mode->fps;
-			if (display_mode.index == 0 || display_mode.index == 1 ||
-				display_mode.index == 5 || display_mode.index == 6 ||
-				display_mode.index == 10 || display_mode.index == 11 ) {
+
+			if (display_mode.index == 0) {
 				decon_regs.vrr_config.mode = DECON_WIN_STATE_VRR_NORMALMODE;
 			} else {
 				decon_regs.vrr_config.mode = DECON_WIN_STATE_VRR_HSMODE;
 			}
-			/* Update LCD infos in decon regs for MRES */
-			dpu_update_mres_lcd_info(decon, &decon_regs);
-			/* apply multi-resolution configuration */
-			dpu_set_mres_config(decon, &decon_regs);
-			/* Update LCD infos in decon regs for VRR */
-			dpu_update_vrr_lcd_info(decon, &decon_regs.vrr_config);
-			/* Apply VRR configuration */
-			dpu_set_vrr_config(decon, &decon_regs.vrr_config);
 
+			decon_update_mres(decon, &decon_regs);
+			decon_update_fps(decon, &decon_regs);
 		}
 		break;
 #endif
