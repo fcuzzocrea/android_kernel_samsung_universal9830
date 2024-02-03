@@ -58,7 +58,8 @@
 
 #include "../../../../iommu/exynos-iommu.h"
 
-
+#define DECON_4K_RESOLUTION_HEIGHT 3200
+#define DECON_4K_RESOLUTION_WIDTH  1440
 
 int decon_log_level = 6;
 module_param(decon_log_level, int, 0644);
@@ -4640,28 +4641,56 @@ static int decon_ioctl(struct fb_info *info, unsigned int cmd,
 
 		if (!IS_DECON_OFF_STATE(decon)) {
 			memset(&decon_regs, 0, sizeof(struct decon_reg_data));
+		decon_info("requested display mode %u coming from mode %u\n",
+				display_mode.index, lcd_info->display_mode[lcd_info->cur_mode_idx].mode.index);
 
 			decon_regs.mode_update = true;
 			decon_regs.lcd_width = mode->width;
 			decon_regs.lcd_height = mode->height;
 			decon_regs.mode_idx = display_mode.index;
-			decon_regs.vrr_config.fps = mode->fps;
-			if (display_mode.index == 0 || display_mode.index == 1 ||
-				display_mode.index == 5 || display_mode.index == 6 ||
-				display_mode.index == 10 || display_mode.index == 11 ) {
+			
+			if (lcd_info->display_mode[display_mode.index].mode.width == DECON_4K_RESOLUTION_WIDTH ||
+			     lcd_info->display_mode[display_mode.index].mode.height == DECON_4K_RESOLUTION_HEIGHT) {
+				decon_regs.vrr_config.fps = mode->fps;
 				decon_regs.vrr_config.mode = DECON_WIN_STATE_VRR_NORMALMODE;
-			} else {
+				/* Update LCD infos in decon regs for MRES */
+				dpu_update_mres_lcd_info(decon, &decon_regs);
+				/* apply multi-resolution configuration */
+				dpu_set_mres_config(decon, &decon_regs);
+				/* Update LCD infos in decon regs for VRR */
+				dpu_update_vrr_lcd_info(decon, &decon_regs.vrr_config);
+				/* Apply VRR configuration */
+				dpu_set_vrr_config(decon, &decon_regs.vrr_config);
+			} else if (((lcd_info->display_mode[lcd_info->cur_mode_idx].mode.width != lcd_info->display_mode[display_mode.index].mode.width) ||
+			(lcd_info->display_mode[lcd_info->cur_mode_idx].mode.height != lcd_info->display_mode[display_mode.index].mode.height))) {
+				decon_regs.vrr_config.fps = 60;
+				decon_regs.vrr_config.mode = DECON_WIN_STATE_VRR_NORMALMODE;
+				/* Update LCD infos in decon regs for MRES */
+				dpu_update_mres_lcd_info(decon, &decon_regs);
+				/* apply multi-resolution configuration */
+				dpu_set_mres_config(decon, &decon_regs);
+				/* Update LCD infos in decon regs for VRR */
+				dpu_update_vrr_lcd_info(decon, &decon_regs.vrr_config);
+				/* Apply VRR configuration */
+				dpu_set_vrr_config(decon, &decon_regs.vrr_config);
+				decon_regs.vrr_config.fps = mode->fps;
 				decon_regs.vrr_config.mode = DECON_WIN_STATE_VRR_HSMODE;
+				/* Update LCD infos in decon regs for MRES */
+				dpu_update_mres_lcd_info(decon, &decon_regs);
+				/* apply multi-resolution configuration */
+				dpu_set_mres_config(decon, &decon_regs);
+				/* Update LCD infos in decon regs for VRR */
+				dpu_update_vrr_lcd_info(decon, &decon_regs.vrr_config);
+				/* Apply VRR configuration */
+				dpu_set_vrr_config(decon, &decon_regs.vrr_config);
+			} else {
+				decon_regs.vrr_config.fps = mode->fps;
+				decon_regs.vrr_config.mode = DECON_WIN_STATE_VRR_HSMODE;
+				/* Update LCD infos in decon regs for VRR */
+				dpu_update_vrr_lcd_info(decon, &decon_regs.vrr_config);
+				/* Apply VRR configuration */
+				dpu_set_vrr_config(decon, &decon_regs.vrr_config);
 			}
-			/* Update LCD infos in decon regs for MRES */
-			dpu_update_mres_lcd_info(decon, &decon_regs);
-			/* apply multi-resolution configuration */
-			dpu_set_mres_config(decon, &decon_regs);
-			/* Update LCD infos in decon regs for VRR */
-			dpu_update_vrr_lcd_info(decon, &decon_regs.vrr_config);
-			/* Apply VRR configuration */
-			dpu_set_vrr_config(decon, &decon_regs.vrr_config);
-
 		}
 		break;
 #endif
