@@ -3004,6 +3004,7 @@ static void decon_update_mres(struct decon_device *decon,
 	decon_systrace(decon, 'B', "decon_update_mres", 1);
 	dpu_update_mres_lcd_info(decon, regs);
 	dpu_set_mres_config(decon, regs);
+	dpu_set_win_update_config(decon, regs);
 	decon_systrace(decon, 'B', "decon_update_mres", 0);
 }
 
