@@ -2998,6 +2998,15 @@ static void decon_update_fps(struct decon_device *decon,
 	decon_systrace(decon, 'B', "decon_update_fps", 0);
 }
 
+static void decon_update_resolution(struct decon_device *decon,
+			struct decon_reg_data *regs)
+{
+	decon_exit_hiber(decon);
+	decon_systrace(decon, 'B', "decon_update_resolution", 1);
+	dpu_update_mres_lcd_info(decon, &decon_regs);
+	dpu_set_mres_config(decon, &decon_regs);
+	decon_systrace(decon, 'B', "decon_update_resolution", 0);
+}
 
 #define GET_WINCONFIG_TIME(regs)	(ktime_to_us(ktime_sub(ktime_get(), regs->create_time)))
 
@@ -4651,45 +4660,39 @@ static int decon_ioctl(struct fb_info *info, unsigned int cmd,
 			
 			if (lcd_info->display_mode[display_mode.index].mode.width == DECON_4K_RESOLUTION_WIDTH ||
 			     lcd_info->display_mode[display_mode.index].mode.height == DECON_4K_RESOLUTION_HEIGHT) {
+				/* 
+				 * QHD+ resolution just supports normal mode on all known exynos9830 devices. So
+				 * this path is taken unconditionally when a QHD+ resolution is requested.
+				 * Probably we can skip decon_update_fps call here.
+				 */
 				decon_regs.vrr_config.fps = mode->fps;
 				decon_regs.vrr_config.mode = DECON_WIN_STATE_VRR_NORMALMODE;
-				/* Update LCD infos in decon regs for MRES */
-				dpu_update_mres_lcd_info(decon, &decon_regs);
-				/* apply multi-resolution configuration */
-				dpu_set_mres_config(decon, &decon_regs);
-				/* Update LCD infos in decon regs for VRR */
-				dpu_update_vrr_lcd_info(decon, &decon_regs.vrr_config);
-				/* Apply VRR configuration */
-				dpu_set_vrr_config(decon, &decon_regs.vrr_config);
+				decon_update_resolution(decon, &decon_regs);
+				decon_update_fps(decon, &decon_regs);
 			} else if (((lcd_info->display_mode[lcd_info->cur_mode_idx].mode.width != lcd_info->display_mode[display_mode.index].mode.width) ||
 			(lcd_info->display_mode[lcd_info->cur_mode_idx].mode.height != lcd_info->display_mode[display_mode.index].mode.height))) {
-				decon_regs.vrr_config.fps = 60;
+				/* 
+				 * If we are here, means that a resolution change has been requested.
+				 * First switch to 60 FPS normal mode, then switch to the resolution
+				 * requested by the user. This path is taken when switching from QHD+
+				 * resolution to FHD/HD resolution.
+				 */
+				decon_regs.vrr_config.fps = 60; /* Requeste 6 fps first */
 				decon_regs.vrr_config.mode = DECON_WIN_STATE_VRR_NORMALMODE;
-				/* Update LCD infos in decon regs for MRES */
-				dpu_update_mres_lcd_info(decon, &decon_regs);
-				/* apply multi-resolution configuration */
-				dpu_set_mres_config(decon, &decon_regs);
-				/* Update LCD infos in decon regs for VRR */
-				dpu_update_vrr_lcd_info(decon, &decon_regs.vrr_config);
-				/* Apply VRR configuration */
-				dpu_set_vrr_config(decon, &decon_regs.vrr_config);
-				decon_regs.vrr_config.fps = mode->fps;
+				decon_update_resolution(decon, &decon_regs);
+				decon_update_fps(decon, &decon_regs);
+				decon_regs.vrr_config.fps = mode->fps; /* Swith to user requested fps */
 				decon_regs.vrr_config.mode = DECON_WIN_STATE_VRR_HSMODE;
-				/* Update LCD infos in decon regs for MRES */
-				dpu_update_mres_lcd_info(decon, &decon_regs);
-				/* apply multi-resolution configuration */
-				dpu_set_mres_config(decon, &decon_regs);
-				/* Update LCD infos in decon regs for VRR */
-				dpu_update_vrr_lcd_info(decon, &decon_regs.vrr_config);
-				/* Apply VRR configuration */
-				dpu_set_vrr_config(decon, &decon_regs.vrr_config);
+				decon_update_resolution(decon, &decon_regs);
+				decon_update_fps(decon, &decon_regs);
 			} else {
+				/* 
+				 * Just FPS change has been requested. This path is take just on
+				 * FHD/HD resolution which supports multiple FPS.
+				 */
 				decon_regs.vrr_config.fps = mode->fps;
 				decon_regs.vrr_config.mode = DECON_WIN_STATE_VRR_HSMODE;
-				/* Update LCD infos in decon regs for VRR */
-				dpu_update_vrr_lcd_info(decon, &decon_regs.vrr_config);
-				/* Apply VRR configuration */
-				dpu_set_vrr_config(decon, &decon_regs.vrr_config);
+				decon_update_fps(decon, &decon_regs);
 			}
 		}
 		break;
