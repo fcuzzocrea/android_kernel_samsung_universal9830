@@ -2681,6 +2681,25 @@
 				android {
 					compatible = "android,firmware";
 					phandle = <0x7b>;
+
+					vbmeta {
+						compatible = "android,vbmeta";
+						parts = "vbmeta,boot,system,vendor";
+					};
+
+					fstab {
+						compatible = "android,fstab";
+
+						vendor {
+							compatible = "android,vendor";
+							dev = "/dev/block/platform/13100000.ufs/by-name/vendor";
+							type = "ext4";
+							mnt_flags = "ro";
+							fsmgr_flags = "wait,avb";
+							status = "disabled";
+							phandle = <0x7c>;
+						};
+					};
 				};
 			};
 		};
@@ -4357,6 +4376,10 @@
 						vc1 = <0x01 0x00 0x00 0x00 0x00 0x00 0x00 0x00>;
 						vc2 = <0x02 0x00 0x00 0x00 0x00 0x00 0x00 0x00>;
 						vc3 = <0x03 0x00 0x00 0x00 0x00 0x00 0x00 0x00>;
+
+						option {
+							binnig = <0x7cb>;
+						};
 					};
 
 					mode11 {
@@ -4365,6 +4388,10 @@
 						vc1 = <0x01 0x00 0x00 0x00 0x00 0x00 0x00 0x00>;
 						vc2 = <0x02 0x00 0x00 0x00 0x00 0x00 0x00 0x00>;
 						vc3 = <0x03 0x00 0x00 0x00 0x00 0x00 0x00 0x00>;
+
+						option {
+							binnig = <0x7cb>;
+						};
 					};
 
 					mode12 {
