@@ -51,6 +51,7 @@
 					samsung,pin-pud = <0>;
 					samsung,pin-con-pdn = <3>;
 					samsung,pin-pud-pdn = <0>;
+					phandle = <26>;
 				};
 			};
 
@@ -59,6 +60,7 @@
 					samsung,pins = "gpa2-3";
 					samsung,pin-function = <0xF>;
 					samsung,pin-pud = <1>;
+					phandle = <27>;
 				};
 			};
 
@@ -69,6 +71,7 @@
 					samsung,pin-pud = <0>;
 					samsung,pin-con-pdn = <3>;
 					samsung,pin-pud-pdn = <0>;
+					phandle = <28>;
 				};
 			};
 
