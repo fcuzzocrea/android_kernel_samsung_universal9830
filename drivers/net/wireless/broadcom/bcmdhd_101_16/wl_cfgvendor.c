@@ -6891,25 +6891,22 @@ exit:
 #define NUM_CHAN 11
 #define HEADER_SIZE sizeof(ver_len)
 
-#define NUM_PNO_SCANS 8
-#define NUM_CCA_SAMPLING_SECS 1
-
 static int wl_cfgvendor_lstats_get_bcn_mbss(char *buf, uint32 *rxbeaconmbss)
 {
 	wl_cnt_info_t *cbuf = (wl_cnt_info_t *)buf;
 	const void *cnt;
 
 	if ((cnt = (const void *)bcm_get_data_from_xtlv_buf(cbuf->data, cbuf->datalen,
-			WL_CNT_XTLV_CNTV_LE10_UCODE, NULL, BCM_XTLV_OPTION_ALIGN32)) != NULL) {
+		WL_CNT_XTLV_CNTV_LE10_UCODE, NULL, BCM_XTLV_OPTION_ALIGN32)) != NULL) {
 		*rxbeaconmbss = ((const wl_cnt_v_le10_mcst_t *)cnt)->rxbeaconmbss;
 	} else if ((cnt = (const void *)bcm_get_data_from_xtlv_buf(cbuf->data, cbuf->datalen,
-			WL_CNT_XTLV_LT40_UCODE_V1, NULL, BCM_XTLV_OPTION_ALIGN32)) != NULL) {
+		WL_CNT_XTLV_LT40_UCODE_V1, NULL, BCM_XTLV_OPTION_ALIGN32)) != NULL) {
 		*rxbeaconmbss = ((const wl_cnt_lt40mcst_v1_t *)cnt)->rxbeaconmbss;
 	} else if ((cnt = (const void *)bcm_get_data_from_xtlv_buf(cbuf->data, cbuf->datalen,
-			WL_CNT_XTLV_GE40_UCODE_V1, NULL, BCM_XTLV_OPTION_ALIGN32)) != NULL) {
+		WL_CNT_XTLV_GE40_UCODE_V1, NULL, BCM_XTLV_OPTION_ALIGN32)) != NULL) {
 		*rxbeaconmbss = ((const wl_cnt_ge40mcst_v1_t *)cnt)->rxbeaconmbss;
 	} else if ((cnt = (const void *)bcm_get_data_from_xtlv_buf(cbuf->data, cbuf->datalen,
-			WL_CNT_XTLV_GE80_UCODE_V1, NULL, BCM_XTLV_OPTION_ALIGN32)) != NULL) {
+		WL_CNT_XTLV_GE80_UCODE_V1, NULL, BCM_XTLV_OPTION_ALIGN32)) != NULL) {
 		*rxbeaconmbss = ((const wl_cnt_ge80mcst_v1_t *)cnt)->rxbeaconmbss;
 	} else {
 		*rxbeaconmbss = 0;
@@ -6919,67 +6916,20 @@ static int wl_cfgvendor_lstats_get_bcn_mbss(char *buf, uint32 *rxbeaconmbss)
 	return BCME_OK;
 }
 
-static void fill_chanspec_to_channel_info(chanspec_t cur_chanspec,
-	wifi_channel_info *channel, int *cur_band)
-{
-	int band;
-	channel->width = WIFI_CHAN_WIDTH_INVALID;
-
-	if (CHSPEC_IS20(cur_chanspec)) {
-		channel->width = WIFI_CHAN_WIDTH_20;
-	} else if (CHSPEC_IS40(cur_chanspec)) {
-		channel->width = WIFI_CHAN_WIDTH_40;
-	} else if (CHSPEC_IS80(cur_chanspec)) {
-		channel->width = WIFI_CHAN_WIDTH_80;
-	} else if (CHSPEC_IS160(cur_chanspec)) {
-		channel->width = WIFI_CHAN_WIDTH_160;
-	} else if (CHSPEC_IS8080(cur_chanspec)) {
-		channel->width = WIFI_CHAN_WIDTH_80P80;
-	}
-
-	band = *cur_band = CHSPEC_BAND(cur_chanspec);
-	channel->center_freq =
-		wl_channel_to_frequency(wf_chspec_primary20_chan(cur_chanspec),
-			band);
-
-	if (CHSPEC_IS160(cur_chanspec) || CHSPEC_IS8080(cur_chanspec)) {
-		channel->center_freq0 =
-			wl_channel_to_frequency(wf_chspec_primary80_channel(cur_chanspec),
-				band);
-		channel->center_freq1 =
-			wl_channel_to_frequency(wf_chspec_secondary80_channel(cur_chanspec),
-				band);
-	} else {
-		channel->center_freq0 =
-			wl_channel_to_frequency(CHSPEC_CHANNEL(cur_chanspec),
-				band);
-		channel->center_freq1 = 0;
-	}
-}
-
 static int wl_cfgvendor_lstats_get_info(struct wiphy *wiphy,
 	struct wireless_dev *wdev, const void  *data, int len)
 {
 	static char iovar_buf[WLC_IOCTL_MAXLEN];
 	struct bcm_cfg80211 *cfg = wiphy_priv(wiphy);
-	int err = 0, ret = 0, i;
+	int err = 0, i;
 	wifi_radio_stat *radio;
-	wifi_radio_stat_h radio_h;
-	wifi_channel_stat *chan_stats = NULL;
-	uint chan_stats_size = 0;
 #ifdef CHAN_STATS_SUPPORT
-	wifi_channel_stat *all_chan_stats = NULL;
-	cca_congest_ext_channel_req_v2_t *per_chspec_stats = NULL;
-	uint per_chspec_stats_size = 0;
-	cca_congest_ext_channel_req_v3_t *all_chan_results;
-	cca_congest_ext_channel_req_v3_t all_chan_req;
+	wifi_radio_stat_h *radio_h = NULL;
+	wifi_channel_stat *chan_stats = NULL;
+	uint msize = 0, buf_len;
 #else
-	/* cca_get_stats_ext iovar for Wifi channel statics */
-	cca_congest_ext_channel_req_v2_t *cca_v2_results = NULL;
-	cca_congest_ext_channel_req_v3_t cca_v3_req;
-	cca_congest_ext_channel_req_v2_t cca_v2_req;
-	uint16 cca_ver;
-#endif /* CHAN_STATS_SUPPORT  */
+	wifi_radio_stat_h radio_h;
+#endif
 	const wl_cnt_wlc_t *wlc_cnt;
 	scb_val_t scbval;
 	char *output = NULL;
@@ -6991,18 +6941,6 @@ static int wl_cfgvendor_lstats_get_info(struct wiphy *wiphy,
 	wlc_rev_info_t revinfo;
 	wl_if_stats_t *if_stats = NULL;
 	dhd_pub_t *dhdp = (dhd_pub_t *)(cfg->pub);
-	wl_pwrstats_query_t scan_query;
-	wl_pwrstats_t *pwrstats;
-	wl_pwr_scan_stats_t scan_stats;
-	int scan_time_len;
-	uint32 tot_pno_dur = 0;
-	wifi_channel_stat cur_channel_stat;
-	cca_congest_channel_req_t *cca_result;
-	cca_congest_channel_req_t cca_req;
-	uint32 cca_busy_time = 0;
-	int cur_chansp, cur_band;
-	chanspec_t cur_chanspec;
-
 	COMPAT_STRUCT_IFACE(wifi_iface_stat, iface);
 
 	WL_TRACE(("%s: Enter \n", __func__));
@@ -7036,6 +6974,38 @@ static int wl_cfgvendor_lstats_get_info(struct wiphy *wiphy,
 	}
 	radio = (wifi_radio_stat *)iovar_buf;
 
+#ifdef CHAN_STATS_SUPPORT
+	err = wldev_iovar_getint(bcmcfg_to_prmry_ndev(cfg), "cca_chan_cnt", &buf_len);
+	if (unlikely(err)) {
+		WL_ERR(("Could not get cca_chan_cnt %d\n", err));
+		goto exit;
+	}
+	msize = sizeof(wifi_radio_stat_h) + buf_len * sizeof(wifi_channel_stat);
+	radio_h = (void *)MALLOCZ(cfg->osh, msize);
+	bzero(radio_h, msize);
+	radio_h->on_time = radio->on_time;
+	radio_h->tx_time = radio->tx_time;
+	radio_h->rx_time = radio->rx_time;
+	radio_h->on_time_scan = radio->on_time_scan;
+	radio_h->on_time_nbd = radio->on_time_nbd;
+	radio_h->on_time_gscan = radio->on_time_gscan;
+	radio_h->on_time_roam_scan = radio->on_time_roam_scan;
+	radio_h->on_time_pno_scan = radio->on_time_pno_scan;
+	radio_h->on_time_hs20 = radio->on_time_hs20;
+	radio_h->num_channels = buf_len;
+
+	buf_len = sizeof(wifi_channel_stat) * radio_h->num_channels + (uint)strlen("cca_chan_stats") + 1;
+	chan_stats = (wifi_channel_stat *)MALLOCZ(cfg->osh, buf_len);
+	err = wldev_iovar_getbuf(bcmcfg_to_prmry_ndev(cfg), "cca_chan_stats", NULL, 0,
+		chan_stats, buf_len, NULL);
+	if (err != BCME_OK) {
+		WL_ERR(("error (%d) getting cca_chan_stats num_channels = %d\n", err, radio_h->num_channels));
+		goto exit;
+	}
+	memcpy(radio_h->channels, chan_stats, sizeof(wifi_channel_stat) * radio_h->num_channels);
+	memcpy(output, radio_h, msize);
+	output += msize;
+#else
 	bzero(&radio_h, sizeof(wifi_radio_stat_h));
 	radio_h.on_time = radio->on_time;
 	radio_h.tx_time = radio->tx_time;
@@ -7046,268 +7016,13 @@ static int wl_cfgvendor_lstats_get_info(struct wiphy *wiphy,
 	radio_h.on_time_roam_scan = radio->on_time_roam_scan;
 	radio_h.on_time_pno_scan = radio->on_time_pno_scan;
 	radio_h.on_time_hs20 = radio->on_time_hs20;
-	radio_h.num_channels = NUM_PEER;
+	radio_h.num_channels = NUM_CHAN;
 
-	scan_query.length = 1;
-	scan_query.type[0] = WL_PWRSTATS_TYPE_SCAN;
+	memcpy(output, &radio_h, sizeof(wifi_radio_stat_h));
 
-	err = wldev_iovar_getbuf(bcmcfg_to_prmry_ndev(cfg), "pwrstats", &scan_query,
-		sizeof(scan_query), iovar_buf, WLC_IOCTL_MAXLEN, NULL);
-	if (err != BCME_OK && err != BCME_UNSUPPORTED) {
-		WL_ERR(("error (%d) - size = %zu\n", err, sizeof(wl_pwrstats_t)));
-		goto exit;
-	}
-
-	pwrstats = (wl_pwrstats_t *) iovar_buf;
-
-	if (dtoh16(pwrstats->version) != WL_PWRSTATS_VERSION) {
-		WL_ERR(("PWRSTATS Version mismatch\n"));
-		err = BCME_ERROR;
-		goto exit;
-	}
-
-	scan_time_len = dtoh16(((uint16 *)pwrstats->data)[1]);
-
-	if (scan_time_len < sizeof(wl_pwr_scan_stats_t)) {
-		WL_ERR(("WL_PWRSTATS_TYPE_SCAN IOVAR info short len :  %d < %d\n",
-			scan_time_len, (int)sizeof(wl_pwr_scan_stats_t)));
-		err = BCME_ERROR;
-		goto exit;
-	}
-
-	(void) memcpy_s(&scan_stats, sizeof(wl_pwr_scan_stats_t), pwrstats->data, scan_time_len);
-
-	/* wl_pwr_scan_stats structure has the array of pno_scans.
-	 * scan_data_t pno_scans[8];
-	 * The number of array is 8 : For future PNO bucketing (BSSID, SSID, etc)
-	 * FW sets the number as harcoded.
-	 * If the hardcoded number (8) is changed,
-	 * the loop condition or NUM_PNO_SCANS has to be changed
-	 */
-
-	for (i = 0; i < NUM_PNO_SCANS; i++) {
-		tot_pno_dur += dtoh32(scan_stats.pno_scans[i].dur);
-	}
-
-	/*  Android Framework defines the total scan time in ms.
-	 *  But FW sends each scan time in us except for roam scan time.
-	 *  So we need to scale the times in ms.
-	 */
-
-	radio_h.on_time_scan = (uint32)((tot_pno_dur +
-		dtoh32(scan_stats.user_scans.dur) +
-		dtoh32(scan_stats.assoc_scans.dur) +
-		dtoh32(scan_stats.other_scans.dur)) / 1000);
-
-	radio_h.on_time_scan += dtoh32(scan_stats.roam_scans.dur);
-	radio_h.on_time_roam_scan = dtoh32(scan_stats.roam_scans.dur);
-	radio_h.on_time_pno_scan = (uint32)(tot_pno_dur / 1000);
-
-	WL_TRACE(("pwr_scan_stats : %u %u %u %u %u %u\n",
-		radio_h.on_time_scan,
-		dtoh32(scan_stats.user_scans.dur),
-		dtoh32(scan_stats.assoc_scans.dur),
-		dtoh32(scan_stats.roam_scans.dur),
-		tot_pno_dur,
-		dtoh32(scan_stats.other_scans.dur)));
-
-	err = wldev_iovar_getint(bcmcfg_to_prmry_ndev(cfg), "chanspec", (int*)&cur_chansp);
-	if (err != BCME_OK) {
-		WL_ERR(("error (%d) \n", err));
-		goto exit;
-	}
-
-	cur_chanspec = wl_chspec_driver_to_host(cur_chansp);
-
-	if (!wf_chspec_valid(cur_chanspec)) {
-		WL_ERR(("Invalid chanspec : %x\n", cur_chanspec));
-		err = BCME_ERROR;
-		goto exit;
-	}
-
-	fill_chanspec_to_channel_info(cur_chanspec, &cur_channel_stat.channel, &cur_band);
-	WL_TRACE(("chanspec : %x, BW : %d, Cur Band : %x, freq : %d, freq0 :%d, freq1 : %d\n",
-		cur_chanspec,
-		cur_channel_stat.channel.width,
-		cur_band,
-		cur_channel_stat.channel.center_freq,
-		cur_channel_stat.channel.center_freq0,
-		cur_channel_stat.channel.center_freq1));
-
-	chan_stats_size = sizeof(wifi_channel_stat);
-	chan_stats = &cur_channel_stat;
-
-#ifdef CHAN_STATS_SUPPORT
-	/* Option to get all channel statistics */
-	all_chan_req.num_of_entries = 0;
-	all_chan_req.ver = WL_CCA_EXT_REQ_VER_V3;
-	err = wldev_iovar_getbuf(bcmcfg_to_prmry_ndev(cfg), "cca_get_stats_ext",
-		&all_chan_req, sizeof(all_chan_req), iovar_buf, WLC_IOCTL_MAXLEN, NULL);
-
-	if (err != BCME_OK && err != BCME_UNSUPPORTED) {
-		WL_ERR(("cca_get_stats_ext iovar err = %d\n", err));
-		goto exit;
-	}
-
-	all_chan_results = (cca_congest_ext_channel_req_v3_t *) iovar_buf;
-	if ((err == BCME_OK) &&
-			(dtoh16(all_chan_results->ver) == WL_CCA_EXT_REQ_VER_V3)) {
-		int i = 0, num_channels;
-
-		num_channels = dtoh16(all_chan_results->num_of_entries);
-		radio_h.num_channels = num_channels;
-
-		chan_stats_size = sizeof(wifi_channel_stat) * num_channels;
-		chan_stats = (wifi_channel_stat*)MALLOCZ(cfg->osh, chan_stats_size);
-		if (chan_stats == NULL) {
-			WL_ERR(("chan_stats alloc failed\n"));
-			goto exit;
-		}
-		bzero(chan_stats, chan_stats_size);
-		all_chan_stats = chan_stats;
-
-		per_chspec_stats_size =
-			sizeof(cca_congest_ext_channel_req_v2_t) * num_channels;
-		per_chspec_stats = (cca_congest_ext_channel_req_v2_t *)
-			MALLOCZ(cfg->osh, per_chspec_stats_size);
-		if (per_chspec_stats == NULL) {
-			WL_ERR(("per_chspec_stats alloc failed\n"));
-			goto exit;
-		}
-		(void) memcpy_s(per_chspec_stats, per_chspec_stats_size,
-			&all_chan_results->per_chan_stats, per_chspec_stats_size);
-
-		WL_TRACE(("** Per channel CCA entries ** \n"));
-
-		for (i = 0; i < num_channels; i++, all_chan_stats++) {
-			if (per_chspec_stats[i].num_secs != 1) {
-				WL_ERR(("Bogus num of seconds returned %d\n",
-					per_chspec_stats[i].num_secs));
-				goto exit;
-			}
-
-			fill_chanspec_to_channel_info(per_chspec_stats[i].chanspec,
-				&all_chan_stats->channel, &cur_band);
-
-			all_chan_stats->on_time =
-				per_chspec_stats[i].secs[0].radio_on_time;
-			all_chan_stats->cca_busy_time =
-				per_chspec_stats[i].secs[0].cca_busy_time;
-
-			WL_TRACE(("chanspec %x num_sec %d radio_on_time %d cca_busytime %d \n",
-				per_chspec_stats[i].chanspec, per_chspec_stats[i].num_secs,
-				per_chspec_stats[i].secs[0].radio_on_time,
-				per_chspec_stats[i].secs[0].cca_busy_time));
-		}
-		all_chan_stats = chan_stats;
-#else
-	cca_v3_req.num_of_entries = 1;
-	cca_v3_req.ver = WL_CCA_EXT_REQ_VER_V3;
-	cca_v3_req.per_chan_stats->chanspec =
-		wl_chspec_host_to_driver(wf_chspec_primary20_chspec(cur_chanspec));
-
-	err = wldev_iovar_getbuf(bcmcfg_to_prmry_ndev(cfg), "cca_get_stats_ext", &cca_v3_req,
-		sizeof(cca_v3_req), iovar_buf, WLC_IOCTL_MAXLEN, NULL);
-
-	if (err != BCME_OK && err != BCME_UNSUPPORTED) {
-		WL_ERR(("cca_get_stats_ext iovar err = %d\n", err));
-		goto exit;
-	}
-
-	cca_ver = ((cca_congest_ext_channel_req_v3_t *)iovar_buf)->ver;
-
-	/* Check the verison for cca_get_stats_ext iovar */
-	if ((err == BCME_OK) &&
-			(dtoh16(cca_ver) == WL_CCA_EXT_REQ_VER_V3)) {
-
-		cca_v2_results =
-			((cca_congest_ext_channel_req_v3_t *)iovar_buf)->per_chan_stats;
-
-		/* the accumulated time for the current channel */
-		cur_channel_stat.on_time = dtoh32(cca_v2_results->secs[0].radio_on_time);
-		cur_channel_stat.cca_busy_time = dtoh32(cca_v2_results->secs[0].cca_busy_time);
-
-		WL_TRACE(("wifi chan statics ver.3 - on_time : %u, cca_busy_time : %u\n",
-			cur_channel_stat.on_time, cur_channel_stat.cca_busy_time));
-	} else if ((err == BCME_OK) &&
-			(dtoh16(cca_ver) == WL_CCA_EXT_REQ_VER_V2)) {
-
-		cca_v2_req.chanspec =
-			wl_chspec_host_to_driver(wf_chspec_primary20_chspec(cur_chanspec));
-
-		err = wldev_iovar_getbuf(bcmcfg_to_prmry_ndev(cfg), "cca_get_stats_ext",
-			&cca_v2_req, sizeof(cca_v2_req), iovar_buf, WLC_IOCTL_MAXLEN, NULL);
-
-		if (err != BCME_OK) {
-			WL_ERR(("cca_get_stats_ext iovar err = %d\n", err));
-			goto exit;
-		}
-
-		cca_v2_results = (cca_congest_ext_channel_req_v2_t *) iovar_buf;
-
-		/* the accumulated time for the current channel */
-		cur_channel_stat.on_time = dtoh32(cca_v2_results->secs[0].radio_on_time);
-		cur_channel_stat.cca_busy_time = dtoh32(cca_v2_results->secs[0].cca_busy_time);
-
-		WL_TRACE(("wifi chan statics ver.2 - on_time : %u, cca_busy_time : %u\n",
-			cur_channel_stat.on_time, cur_channel_stat.cca_busy_time));
-#endif /* CHAN_STATS_SUPPORT  */
-	} else {
-		/* To get fine-grained cca result,
-		* you can increase num_secs because num_secs is the time to get samples.
-		* Also if the time is increased,
-		* it is necessary to use a loop to add the times of cca_result->sec[].
-		* For simplicity, the sampling time is set to 1sec.
-		*/
-		WL_TRACE(("cca_get_stats_ext unsupported or version mismatch\n"));
-
-		cca_req.num_secs = NUM_CCA_SAMPLING_SECS;
-		cca_req.chanspec = wl_chspec_host_to_driver(cur_chanspec);
-
-		err = wldev_iovar_getbuf(bcmcfg_to_prmry_ndev(cfg), "cca_get_stats", &cca_req,
-			sizeof(cca_req), iovar_buf, WLC_IOCTL_MAXLEN, NULL);
-
-		if (err != BCME_OK && err != BCME_UNSUPPORTED) {
-			WL_ERR(("error (%d) - size = %zu\n",
-				err, sizeof(cca_congest_channel_req_t)));
-			goto exit;
-		}
-
-		cur_channel_stat.on_time = radio_h.on_time;
-
-		if (err == BCME_OK) {
-			cca_result = (cca_congest_channel_req_t *) iovar_buf;
-			cca_busy_time = dtoh32(cca_result->secs[0].congest_ibss) +
-				dtoh32(cca_result->secs[0].congest_obss) +
-				dtoh32(cca_result->secs[0].interference);
-
-			WL_TRACE(("wifi stats : %u, %u, %u, %u, %u\n", cur_channel_stat.on_time,
-				cca_busy_time,
-				dtoh32(cca_result->secs[0].congest_ibss),
-				dtoh32(cca_result->secs[0].congest_obss),
-				dtoh32(cca_result->secs[0].interference)));
-		} else {
-			WL_ERR(("cca_get_stats is unsupported \n"));
-		}
-
-		/* If cca_get_stats is unsupported, cca_busy_time has zero value as initial value */
-		cur_channel_stat.cca_busy_time = cca_busy_time;
-	}
-
-	ret = memcpy_s(output, WLC_IOCTL_MAXLEN, &radio_h, sizeof(wifi_radio_stat_h));
-	if (ret) {
-		WL_ERR(("Failed to copy wifi_radio_stat_h: %d\n", ret));
-		goto exit;
-	}
 	output += sizeof(wifi_radio_stat_h);
-
-	ret = memcpy_s(output, (WLC_IOCTL_MAXLEN - sizeof(wifi_radio_stat_h)),
-		chan_stats, chan_stats_size);
-	if (ret) {
-		WL_ERR(("Failed to copy wifi_channel_stat: %d\n", ret));
-		goto exit;
-	}
-	output += chan_stats_size;
+	output += (NUM_CHAN * sizeof(wifi_channel_stat));
+#endif
 
 	COMPAT_BZERO_IFACE(wifi_iface_stat, iface);
 	COMPAT_ASSIGN_VALUE(iface, ac[WIFI_AC_VO].ac, WIFI_AC_VO);
@@ -7365,8 +7080,7 @@ static int wl_cfgvendor_lstats_get_info(struct wiphy *wiphy,
 		COMPAT_ASSIGN_VALUE(iface, ac[WIFI_AC_BE].tx_mpdu, (uint32)if_stats->txframe);
 		COMPAT_ASSIGN_VALUE(iface, ac[WIFI_AC_BE].rx_mpdu,
 			(uint32)(if_stats->rxframe - if_stats->rxmulti));
-		COMPAT_ASSIGN_VALUE(iface, ac[WIFI_AC_BE].mpdu_lost,
-				(uint32)if_stats->txfail + wlc_cnt->tx_toss_cnt);
+		COMPAT_ASSIGN_VALUE(iface, ac[WIFI_AC_BE].mpdu_lost, (uint32)if_stats->txfail);
 		COMPAT_ASSIGN_VALUE(iface, ac[WIFI_AC_BE].retries, (uint32)if_stats->txretrans);
 	} else
 #endif /* !DISABLE_IF_COUNTERS */
@@ -7374,8 +7088,7 @@ static int wl_cfgvendor_lstats_get_info(struct wiphy *wiphy,
 		COMPAT_ASSIGN_VALUE(iface, ac[WIFI_AC_BE].tx_mpdu,
 			(wlc_cnt->txfrmsnt - wlc_cnt->txmulti));
 		COMPAT_ASSIGN_VALUE(iface, ac[WIFI_AC_BE].rx_mpdu, wlc_cnt->rxframe);
-		COMPAT_ASSIGN_VALUE(iface, ac[WIFI_AC_BE].mpdu_lost,
-				wlc_cnt->txfail + wlc_cnt->tx_toss_cnt);
+		COMPAT_ASSIGN_VALUE(iface, ac[WIFI_AC_BE].mpdu_lost, wlc_cnt->txfail);
 		COMPAT_ASSIGN_VALUE(iface, ac[WIFI_AC_BE].retries, wlc_cnt->txretrans);
 	}
 
@@ -7424,7 +7137,13 @@ static int wl_cfgvendor_lstats_get_info(struct wiphy *wiphy,
 		output += sizeof(p_wifi_rate_stat_v1->retries_long);
 	}
 
-	total_len = sizeof(wifi_radio_stat_h) + chan_stats_size;
+#ifdef CHAN_STATS_SUPPORT
+	total_len = msize;
+#else
+	total_len = sizeof(wifi_radio_stat_h) +
+		NUM_CHAN * sizeof(wifi_channel_stat);
+#endif
+
 	total_len = total_len - sizeof(wifi_peer_info) +
 		NUM_PEER * (sizeof(wifi_peer_info) - sizeof(wifi_rate_stat_v1) +
 			NUM_RATE * sizeof(wifi_rate_stat_v1));
@@ -7447,11 +7166,11 @@ exit:
 		MFREE(cfg->osh, if_stats, sizeof(wl_if_stats_t));
 	}
 #ifdef CHAN_STATS_SUPPORT
-	if (all_chan_stats) {
-		MFREE(cfg->osh, all_chan_stats, chan_stats_size);
+	if (chan_stats) {
+		MFREE(cfg->osh, chan_stats, sizeof(wifi_channel_stat) * radio_h->num_channels);
 	}
-	if (per_chspec_stats) {
-		MFREE(cfg->osh, per_chspec_stats, per_chspec_stats_size);
+	if (radio_h) {
+		MFREE(cfg->osh, radio_h, msize);
 	}
 #endif /* CHAN_STATS_SUPPORT */
 	return err;
