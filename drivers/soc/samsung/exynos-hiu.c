@@ -28,9 +28,9 @@
 
 static struct exynos_hiu_data *hiu_data;
 atomic_t hiu_normdvfs_req = ATOMIC_INIT(0);
-
+#ifdef CONFIG_ARM_EXYNOS_ACME
 static void hiu_stats_create_table(struct cpufreq_policy *policy);
-
+#endif
 #define POLL_PERIOD 100
 
 /****************************************************************/
@@ -545,7 +545,7 @@ static void __exynos_hiu_update_data(struct cpufreq_policy *policy)
 		hiu_dummy_request(hiu_data->cur_freq);
 	}
 }
-
+#ifdef CONFIG_ARM_EXYNOS_ACME
 static int exynos_hiu_update_data(struct cpufreq_policy *policy)
 {
 	if (!cpumask_test_cpu(hiu_data->cpu, policy->cpus))
@@ -569,7 +569,7 @@ static int exynos_hiu_update_data(struct cpufreq_policy *policy)
 static struct exynos_cpufreq_ready_block exynos_hiu_ready = {
 	.update = exynos_hiu_update_data,
 };
-
+#endif
 /****************************************************************/
 /*			SYSFS INTERFACE				*/
 /****************************************************************/
@@ -741,7 +741,7 @@ static int hiu_dt_parsing(struct device_node *dn)
 
 	return 0;
 }
-
+#ifdef CONFIG_ARM_EXYNOS_ACME
 static void hiu_stats_create_table(struct cpufreq_policy *policy)
 {
 	unsigned int i = 0, count = 0, alloc_size;
@@ -783,7 +783,7 @@ static void hiu_stats_create_table(struct cpufreq_policy *policy)
 free_stat:
 	kfree(stats);
 }
-
+#endif
 static int exynos_hiu_probe(struct platform_device *pdev)
 {
 	struct device_node *dn = pdev->dev.of_node;
@@ -834,9 +834,9 @@ static int exynos_hiu_probe(struct platform_device *pdev)
 	ret = sysfs_create_group(&pdev->dev.kobj, &exynos_hiu_attr_group);
 	if (ret)
 		dev_err(&pdev->dev, "Failed to create Exynos HIU attr group");
-
+#ifdef CONFIG_ARM_EXYNOS_ACME
 	exynos_cpufreq_ready_list_add(&exynos_hiu_ready);
-
+#endif
 	dev_info(&pdev->dev, "HIU Handler initialization complete\n");
 	return 0;
 

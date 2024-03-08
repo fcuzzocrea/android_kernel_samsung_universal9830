@@ -275,7 +275,9 @@ enum booster_res_type {
 	MIF,
 	INT,
 	HMPBOOST,
+#if defined(CONFIG_ARM_EXYNOS_UCC)
 	UCC,
+#endif
 	MAX_RES_COUNT
 };
 #endif

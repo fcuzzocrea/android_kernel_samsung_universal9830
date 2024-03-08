@@ -214,9 +214,9 @@ static int __init exynos_idle_init(void)
 
 	/* clsss for exynos cpuidle : /sys/class/cpuidle */
 	idle_class = class_create(THIS_MODULE, "cpuidle");
-
+#ifdef CONFIG_ARM_EXYNOS_UCC
 	init_exynos_ucc();
-
+#endif
 	pr_info("Exynos cpuidle driver Initialized\n");
 
 	return 0;

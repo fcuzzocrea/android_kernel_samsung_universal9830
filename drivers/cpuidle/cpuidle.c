@@ -264,9 +264,9 @@ int cpuidle_enter_state(struct cpuidle_device *dev, struct cpuidle_driver *drv,
 		target_state = &drv->states[index];
 		broadcast = false;
 	}
-
+#ifdef CONFIG_ARM_EXYNOS_UCC
 	index = filter_cstate(dev->cpu, index);
-
+#endif
 	/* Take note of the planned idle state. */
 	sched_idle_set_state(target_state, index);
 

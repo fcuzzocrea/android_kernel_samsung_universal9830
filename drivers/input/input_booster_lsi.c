@@ -1,29 +1,32 @@
 #include <linux/input/input_booster.h>
 #include <linux/ems.h>
+#ifdef CONFIG_ARM_EXYNOS_UCC
 #include <linux/exynos-ucc.h>
-
+#endif
 static struct emstune_mode_request emstune_req_input;
 static struct pm_qos_request cluster2_qos;
 static struct pm_qos_request cluster1_qos;
 static struct pm_qos_request cluster0_qos;
 static struct pm_qos_request mif_qos;
 static struct pm_qos_request int_qos;
+#ifdef CONFIG_ARM_EXYNOS_UCC
 static struct ucc_req ucc_req =
 {
 	.name = "input",
 };
-
+#endif
 static DEFINE_MUTEX(input_lock);
 bool current_hmp_boost = INIT_ZERO;
+#ifdef CONFIG_ARM_EXYNOS_UCC
 bool current_ucc_boost = INIT_ZERO;
-
+#endif
 struct inform {
   void *qos;
   void (*set_func)(int);
   int release_value;
 };
 struct inform informations[MAX_RES_COUNT];
-
+#ifdef CONFIG_ARM_EXYNOS_UCC
 void set_ucc(int enable) {
 	mutex_lock(&input_lock);
 
@@ -39,7 +42,7 @@ void set_ucc(int enable) {
 
 	mutex_unlock(&input_lock);
 }
-
+#endif
 
 void set_hmp(int enable) {
 	mutex_lock(&input_lock);
@@ -114,8 +117,9 @@ void input_booster_init_vendor(int* release_val)
 	informations[i++].qos = &mif_qos;
 	informations[i++].qos = &int_qos;
 	informations[i++].set_func = set_hmp;
+#ifdef CONFIG_ARM_EXYNOS_UCC
 	informations[i++].set_func = set_ucc;
-
+#endif
 	for (i = 0; i < MAX_RES_COUNT; i++) {
 		informations[i].release_value = release_val[i];
 	}

@@ -548,7 +548,7 @@ static int exynos_ocp_cpufreq_callback(struct notifier_block *nb,
 static struct notifier_block exynos_ocp_cpufreq_notifier = {
 	.notifier_call = exynos_ocp_cpufreq_callback,
 };
-
+#ifdef CONFIG_ARM_EXYNOS_ACME
 static void ocp_stats_create_table(struct cpufreq_policy *policy);
 
 static int exynos_ocp_update_data(struct cpufreq_policy *policy)
@@ -580,7 +580,7 @@ static int exynos_ocp_update_data(struct cpufreq_policy *policy)
 static struct exynos_cpufreq_ready_block exynos_ocp_ready = {
 	.update = exynos_ocp_update_data,
 };
-
+#endif
 static int exynos_ocp_cpu_up_callback(unsigned int cpu)
 {
 	struct cpumask mask;
@@ -848,7 +848,7 @@ static int ocp_dt_parsing(struct device_node *dn)
 
 	return 0;
 }
-
+#ifdef CONFIG_ARM_EXYNOS_ACME
 static void ocp_stats_create_table(struct cpufreq_policy *policy)
 {
 	unsigned int i = 0, count = 0, alloc_size;
@@ -893,7 +893,7 @@ static void ocp_stats_create_table(struct cpufreq_policy *policy)
 free_stat:
 	kfree(stats);
 }
-
+#endif
 static int exynos_ocp_probe(struct platform_device *pdev)
 {
 	struct device_node *dn = pdev->dev.of_node;
@@ -953,9 +953,9 @@ static int exynos_ocp_probe(struct platform_device *pdev)
 	ret = sysfs_create_group(&pdev->dev.kobj, &exynos_ocp_attr_group);
 	if (ret)
 		dev_err(&pdev->dev, "Failed to create Exynos OCP attr group");
-
+#ifdef CONFIG_ARM_EXYNOS_ACME
 	exynos_cpufreq_ready_list_add(&exynos_ocp_ready);
-
+#endif
 	dev_info(&pdev->dev, "Complete OCP Handler initialization\n");
 	return 0;
 
