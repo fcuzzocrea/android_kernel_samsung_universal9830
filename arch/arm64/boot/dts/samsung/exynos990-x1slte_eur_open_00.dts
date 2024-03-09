@@ -6844,11 +6844,6 @@
 							resource,label = "hmp";
 							resource,value = <0x02 0x00>;
 						};
-
-						resource@7 {
-							resource,label = "ucc";
-							resource,value = <0x01 0x00>;
-						};
 					};
 				};
 
@@ -6889,11 +6884,6 @@
 						resource@6 {
 							resource,label = "hmp";
 							resource,value = <0x02 0x00>;
-						};
-
-						resource@7 {
-							resource,label = "ucc";
-							resource,value = <0x01 0x00>;
 						};
 					};
 				};
@@ -6936,11 +6926,6 @@
 							resource,label = "hmp";
 							resource,value = <0x02 0x02>;
 						};
-
-						resource@7 {
-							resource,label = "ucc";
-							resource,value = <0x01 0x01>;
-						};
 					};
 				};
 
@@ -6981,11 +6966,6 @@
 						resource@6 {
 							resource,label = "hmp";
 							resource,value = <0x02 0x02>;
-						};
-
-						resource@7 {
-							resource,label = "ucc";
-							resource,value = <0x01 0x01>;
 						};
 					};
 				};
@@ -7074,11 +7054,6 @@
 							resource,label = "hmp";
 							resource,value = <0x02 0x02>;
 						};
-
-						resource@7 {
-							resource,label = "ucc";
-							resource,value = <0x01 0x01>;
-						};
 					};
 				};
 
@@ -7119,11 +7094,6 @@
 						resource@6 {
 							resource,label = "hmp";
 							resource,value = <0x02 0x00>;
-						};
-
-						resource@7 {
-							resource,label = "ucc";
-							resource,value = <0x01 0x01>;
 						};
 					};
 				};
@@ -7166,11 +7136,6 @@
 							resource,label = "hmp";
 							resource,value = <0x02 0x02>;
 						};
-
-						resource@7 {
-							resource,label = "ucc";
-							resource,value = <0x01 0x01>;
-						};
 					};
 				};
 
@@ -7211,11 +7176,6 @@
 						resource@6 {
 							resource,label = "hmp";
 							resource,value = <0x02 0x02>;
-						};
-
-						resource@7 {
-							resource,label = "ucc";
-							resource,value = <0x01 0x01>;
 						};
 					};
 				};
