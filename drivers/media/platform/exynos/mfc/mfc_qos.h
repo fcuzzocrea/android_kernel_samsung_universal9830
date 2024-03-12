@@ -15,36 +15,18 @@
 
 #include "mfc_common.h"
 
+#define MFC_MIN_FPS			(30000)
 #define MFC_MAX_FPS			(480000)
 #define DEC_DEFAULT_FPS			(240000)
 #define ENC_DEFAULT_FPS			(240000)
 #define ENC_DEFAULT_CAM_CAPTURE_FPS	(60000)
 
-#define MB_COUNT_PER_UHD_FRAME		32400
-#define MAX_FPS_PER_UHD_FRAME		120
-#define MIN_BW_PER_SEC			1
-
-#define MFC_DRV_TIME			500
-
-#define MFC_QOS_TABLE_TYPE_DEFAULT	0
-#define MFC_QOS_TABLE_TYPE_ENCODER	1
-
-#ifdef CONFIG_MFC_USE_BUS_DEVFREQ
-void mfc_perf_boost_enable(struct mfc_dev *dev);
-void mfc_perf_boost_disable(struct mfc_dev *dev);
-void mfc_qos_on(struct mfc_ctx *ctx);
-void mfc_qos_off(struct mfc_ctx *ctx);
-#else
-#define mfc_perf_boost_enable(dev)	do {} while (0)
-#define mfc_perf_boost_disable(dev)	do {} while (0)
-#define mfc_qos_on(ctx)				do {} while (0)
-#define mfc_qos_off(ctx)		do {} while (0)
-#endif
-
-void mfc_qos_idle_worker(struct work_struct *work);
-void mfc_qos_update_framerate(struct mfc_ctx *ctx, u32 bytesused,
-		int idle_trigger_only);
+void mfc_qos_reset_ts_list(struct mfc_ts_control *ts);
+void mfc_qos_update_bitrate(struct mfc_ctx *ctx, u32 bytesused);
+void mfc_qos_update_framerate(struct mfc_ctx *ctx);
 void mfc_qos_update_last_framerate(struct mfc_ctx *ctx, u64 timestamp);
+void mfc_qos_update_bufq_framerate(struct mfc_ctx *ctx, int type);
+void mfc_qos_reset_bufq_framerate(struct mfc_ctx *ctx);
 
 static inline int __mfc_timeval_compare(const struct timeval *lhs, const struct timeval *rhs)
 {
@@ -77,5 +59,4 @@ static inline int mfc_qos_get_framerate(struct mfc_ctx *ctx)
 {
 	return ctx->framerate;
 }
-
 #endif /* __MFC_QOS_H */

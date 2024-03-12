@@ -13,24 +13,20 @@
 #ifndef __MFC_COMMON_H
 #define __MFC_COMMON_H __FILE__
 
-#include <linux/exynos_iovmm.h>
 #include <linux/io.h>
 #include <linux/slab.h>
 #include <linux/sched/clock.h>
-#include <linux/ion_exynos.h>
-#include <linux/dma-buf-container.h>
 #include <media/videobuf2-dma-sg.h>
 #include <asm/cacheflush.h>
+#include <soc/samsung/debug-snapshot.h>
 
-#include <soc/samsung/exynos-debug.h>
-
+#include "mfc_data_struct.h"
 #include "mfc_regs.h"
 #include "mfc_macros.h"
 #include "mfc_debug.h"
-#include "exynos_mfc_media.h"
-#include "mfc_data_struct.h"
+#include "mfc_media.h"
 
-#define MFC_DRIVER_INFO		190719
+#define MFC_DRIVER_INFO		200429
 
 #define MFC_MAX_REF_BUFS	2
 #define MFC_FRAME_PLANES	2
@@ -38,6 +34,22 @@
 
 #define MFC_MAX_DRM_CTX		2
 
+/* MFC video node */
+#define EXYNOS_VIDEONODE_MFC_DEC               6
+#define EXYNOS_VIDEONODE_MFC_ENC               7
+#define EXYNOS_VIDEONODE_MFC_DEC_DRM           8
+#define EXYNOS_VIDEONODE_MFC_ENC_DRM           9
+#define EXYNOS_VIDEONODE_MFC_ENC_OTF           10
+#define EXYNOS_VIDEONODE_MFC_ENC_OTF_DRM       11
+
+/* Core information */
+#define MFC_DEC_DEFAULT_CORE	0
+#define MFC_ENC_DEFAULT_CORE	0
+#define MFC_SURPLUS_CORE	1
+#define MFC_MAX_CORE_BALANCE	99
+
+/* MFC base address */
+#define MFC_BASE_ADDR		0x10000000
 /* Interrupt timeout */
 #define MFC_INT_TIMEOUT		4000
 /* Interrupt short timeout */
@@ -51,17 +63,27 @@
 /* Interrupt timeout count*/
 #define MFC_INT_TIMEOUT_CNT	2
 
-/* This value guarantees 299.4msec ~ 2.25sec according to MFC clock (668MHz ~ 89MHz)
- * releated with MFC_REG_DEC_TIMEOUT_VALUE */
+/* The MAX I frame interval for boosting is 2sec */
+#define MFC_BOOST_TIME			(2)
+/* The boost mode is not applied during first 60frames */
+#define MFC_BOOST_SKIP_FRAME		(60)
+/* The boost mode is maintained at least 20msec */
+#define MFC_BOOST_OFF_TIME		((MFC_BOOST_TIME * NSEC_PER_SEC) - (20000 * NSEC_PER_USEC))
+
+/*
+ * This value guarantees 299.4msec ~ 2.25sec according to MFC clock (668MHz ~ 89MHz)
+ * releated with MFC_REG_TIMEOUT_VALUE
+ */
 #define MFC_TIMEOUT_VALUE	200000000
 
 #define NUM_MPEG4_LF_BUF	2
 
-#define FRAME_RATE_RESOLUTION	1000
+#define FRAME_RATE_RESOLUTION	10000
 
 #define DEFAULT_TAG		(0xE05)
 #define IGNORE_TAG		(0xD5C) /* ex) encoder DRC */
 #define HEADER_TAG		(0xC5D)
+#define UNUSED_TAG		(-1)
 
 #define MFC_NO_INSTANCE_SET	-1
 
@@ -72,6 +94,7 @@
 #define MFC_FW_NAME		"mfc_fw.bin"
 
 #define STUFF_BYTE		4
+#define MFC_EXTRA_DPB		5
 
 #define MFC_BASE_MASK		((1 << 17) - 1)
 
@@ -102,8 +125,9 @@
 		((d)->dump_ops->op(args)) : 0)
 
 #define	MFC_CTRL_TYPE_GET	(MFC_CTRL_TYPE_GET_SRC | MFC_CTRL_TYPE_GET_DST)
-#define	MFC_CTRL_TYPE_SRC	(MFC_CTRL_TYPE_SET | MFC_CTRL_TYPE_GET_SRC)
-#define	MFC_CTRL_TYPE_DST	(MFC_CTRL_TYPE_GET_DST)
+#define	MFC_CTRL_TYPE_SET	(MFC_CTRL_TYPE_SET_SRC | MFC_CTRL_TYPE_SET_DST)
+#define	MFC_CTRL_TYPE_SRC	(MFC_CTRL_TYPE_SET_SRC | MFC_CTRL_TYPE_GET_SRC)
+#define	MFC_CTRL_TYPE_DST	(MFC_CTRL_TYPE_SET_DST | MFC_CTRL_TYPE_GET_DST)
 
 #define MFC_FMT_STREAM		(1 << 0)
 #define MFC_FMT_FRAME		(1 << 1)
@@ -133,8 +157,10 @@
 #define IS_VC1_RCV_DEC(ctx)	((ctx)->codec_mode == MFC_REG_CODEC_VC1_RCV_DEC)
 #define IS_MPEG2_DEC(ctx)	((ctx)->codec_mode == MFC_REG_CODEC_MPEG2_DEC)
 #define IS_HEVC_DEC(ctx)	((ctx)->codec_mode == MFC_REG_CODEC_HEVC_DEC)
+#define IS_VP8_DEC(ctx)		((ctx)->codec_mode == MFC_REG_CODEC_VP8_DEC)
 #define IS_VP9_DEC(ctx)		((ctx)->codec_mode == MFC_REG_CODEC_VP9_DEC)
 #define IS_BPG_DEC(ctx)		((ctx)->codec_mode == MFC_REG_CODEC_BPG_DEC)
+#define IS_AV1_DEC(ctx)		((ctx)->codec_mode == MFC_REG_CODEC_AV1_DEC)
 
 /* Encoder codec mode check */
 #define IS_H264_ENC(ctx)	((ctx)->codec_mode == MFC_REG_CODEC_H264_ENC)
@@ -152,24 +178,27 @@
 				IS_VC1_DEC(ctx) || IS_VC1_RCV_DEC(ctx))
 #define CODEC_MBAFF(ctx)	(IS_H264_DEC(ctx) || IS_H264_MVC_DEC(ctx))
 #define CODEC_MULTIFRAME(ctx)	(IS_MPEG4_DEC(ctx) || IS_VP9_DEC(ctx) ||	\
-				IS_FIMV2_DEC(ctx) || IS_FIMV3_DEC(ctx) || IS_FIMV4_DEC(ctx))
+				IS_FIMV2_DEC(ctx) || IS_FIMV3_DEC(ctx) || IS_FIMV4_DEC(ctx) || IS_AV1_DEC(ctx))
 #define CODEC_10BIT(ctx)	(IS_HEVC_DEC(ctx) || IS_HEVC_ENC(ctx) ||	\
 				IS_VP9_DEC(ctx) || IS_VP9_ENC(ctx) ||		\
-				IS_BPG_DEC(ctx) || IS_BPG_ENC(ctx))
+				IS_BPG_DEC(ctx) || IS_BPG_ENC(ctx) || IS_AV1_DEC(ctx))
 #define CODEC_422FORMAT(ctx)	(IS_HEVC_DEC(ctx) || IS_HEVC_ENC(ctx) ||	\
 				IS_VP9_DEC(ctx) || IS_VP9_ENC(ctx) ||		\
 				IS_BPG_DEC(ctx) || IS_BPG_ENC(ctx))
-#define CODEC_HIGH_PERF(ctx)	(IS_H264_DEC(ctx) || IS_H264_MVC_DEC(ctx) || IS_HEVC_DEC(ctx))
+#define CODEC_HIGH_PERF(ctx)	(IS_H264_DEC(ctx) || IS_H264_MVC_DEC(ctx) || IS_HEVC_DEC(ctx) ||  \
+				IS_H264_ENC(ctx) || IS_HEVC_ENC(ctx))
 #define ON_RES_CHANGE(ctx)	(((ctx)->state >= MFCINST_RES_CHANGE_INIT) &&	\
 				 ((ctx)->state <= MFCINST_RES_CHANGE_END))
-#define IS_NO_DISPLAY(ctx, err) ((IS_VC1_RCV_DEC(ctx) &&					\
-				mfc_get_warn(err) == MFC_REG_ERR_SYNC_POINT_NOT_RECEIVED) ||	\
-				(mfc_get_warn(err) == MFC_REG_ERR_BROKEN_LINK))
 #define IS_NO_ERROR(err)	((err) == 0 ||		\
 				(mfc_get_warn(err)	\
 				 == MFC_REG_ERR_SYNC_POINT_NOT_RECEIVED))
+#define CODEC_HAS_IDR(ctx)	(IS_H264_DEC(ctx) || IS_H264_MVC_DEC(ctx) || IS_HEVC_DEC(ctx) ||  \
+				IS_H264_ENC(ctx) || IS_HEVC_ENC(ctx))
 
 #define IS_BUFFER_BATCH_MODE(ctx)	((ctx)->batch_mode == 1)
+#define IS_NO_HEADER_GENERATE(ctx, p)			\
+	((p->seq_hdr_mode == V4L2_MPEG_VIDEO_HEADER_MODE_JOINED_WITH_1ST_FRAME) || \
+	((IS_VP8_ENC(ctx) || IS_VP9_ENC(ctx)) && p->ivf_header_disable))
 
 /*
  levels with maximum property values
@@ -184,6 +213,28 @@
 
 #define IS_LV51_MB(mb)		(((mb) > LV51_MB_MIN) && ((mb) <= LV51_MB_MAX))
 #define IS_LV60_MB(mb)		(((mb) > LV51_MB_MAX) && ((mb) <= LV60_MB_MAX))
+
+/* 8K resolution (include 21:9 7680 x 3296) */
+#define MFC_8K_RES		(7680 * 3200)
+#define IS_8K_RES(ctx)		(((ctx)->crop_width * (ctx)->crop_height) >= MFC_8K_RES)
+/* For max h/w performance */
+#define IS_8K_PERF(ctx)		(((ctx)->crop_width * (ctx)->crop_height) >= (MFC_8K_RES / 2))
+
+/* 4K resolution */
+#define MFC_4K_RES		(4096 * 2176)
+#define UNDER_4K_RES(ctx)	(((ctx)->crop_width * (ctx)->crop_height) < MFC_4K_RES)
+
+/* UHD resolution (include 21:9 3840 x 1644) */
+#define MFC_UHD_RES		(3840 * 1600)
+#define OVER_UHD_RES(ctx)	(((ctx)->crop_width * (ctx)->crop_height) >= MFC_UHD_RES)
+
+/* FHD resolution */
+#define MFC_FHD_RES		(1920 * 1088)
+#define MFC_FHD_RES_MB		(((1920 + 15) / 16) * ((1088 + 15) / 16))
+#define UNDER_FHD_RES(ctx)	(((ctx)->crop_width * (ctx)->crop_height) <= MFC_FHD_RES)
+
+/* HD resolution */
+#define MFC_HD_RES_MB		(((1280 + 15) / 16) * ((720 + 15) / 16))
 
 #define IS_BLACKBAR_OFF(ctx)	((ctx)->crop_height > 2160)
 #define IS_SUPER64_BFRAME(ctx, size, type)	((ctx->is_10bit) && (size >= 2) && (type == 3))
@@ -201,15 +252,28 @@
 #define IS_SBWC_DPB(ctx)	((ctx)->is_sbwc || (ctx)->is_sbwc_lossy ||	\
 				((ctx)->enc_priv->sbwc_option == 2))
 
+#define IS_MULTI_CORE_DEVICE(dev)	((dev)->num_core > 1)
+#define IS_SINGLE_MODE(ctx)	   ((ctx)->op_mode == MFC_OP_SINGLE)
+#define IS_TWO_MODE1(ctx)	   ((ctx)->op_mode == MFC_OP_TWO_MODE1)
+#define IS_TWO_MODE2(ctx)	   ((ctx)->op_mode == MFC_OP_TWO_MODE2)
+#define IS_MULTI_MODE(ctx)	   (((ctx)->op_mode == MFC_OP_TWO_MODE1) || \
+					((ctx)->op_mode == MFC_OP_TWO_MODE2))
+#define IS_SWITCH_SINGLE_MODE(ctx) (((ctx)->op_mode == MFC_OP_SWITCH_TO_SINGLE) || \
+					((ctx)->op_mode == MFC_OP_SWITCH_BUT_MODE2))
+#define IS_MODE_SWITCHING(ctx)	   ((ctx)->op_mode == MFC_OP_SWITCHING)
+
 /* Extra information for Decoder */
 #define	DEC_SET_DUAL_DPB		(1 << 0)
 #define	DEC_SET_DYNAMIC_DPB		(1 << 1)
 #define	DEC_SET_LAST_FRAME_INFO		(1 << 2)
 #define	DEC_SET_SKYPE_FLAG		(1 << 3)
 #define	DEC_SET_HDR10_PLUS		(1 << 4)
-#define	DEC_SET_DRV_DPB_MANAGER		(1 << 5)
-#define	DEC_SET_OPERATING_FPS		(1 << 8)
-#define	DEC_SET_PRIORITY		(1 << 23)
+/* new C2_INTERFACE: DISPLAY_DELAY, FRAME_POC */
+#define	DEC_SET_C2_INTERFACE		(1 << 6)
+#define DEC_SET_FRAME_ERR_TYPE		(1 << 7)
+#define DEC_SET_OPERATING_FPS		(1 << 8)
+#define DEC_SET_BUF_FLAG_CTRL		(1 << 16)
+#define DEC_SET_PRIORITY		(1 << 23)
 
 /* Extra information for Encoder */
 #define	ENC_SET_RGB_INPUT		(1 << 0)
@@ -228,13 +292,18 @@
 #define	ENC_SET_VP9_PROFILE_LEVEL	(1 << 13)
 #define	ENC_SET_DROP_CONTROL		(1 << 14)
 #define	ENC_SET_CHROMA_QP_CONTROL	(1 << 15)
-#define	ENC_SET_OPERATING_FPS		(1 << 18)
-#define	ENC_SET_PRIORITY		(1 << 23)
+#define ENC_SET_BUF_FLAG_CTRL		(1 << 16)
+#define ENC_SET_GDC_VOTF		(1 << 17)
+#define ENC_SET_OPERATING_FPS		(1 << 18)
+#define ENC_SET_AVERAGE_QP		(1 << 19)
+#define ENC_SET_MV_SEARCH_MODE		(1 << 20)
+#define ENC_SET_GOP_CTRL		(1 << 21)
+#define ENC_SET_PRIORITY		(1 << 23)
 
-#define MFC_FEATURE_SUPPORT(dev, f)	((f).support && ((dev)->fw.date >= (f).version))
+#define MFC_FEATURE_SUPPORT(dev, f)	((f).support && ((dev)->fw_date >= (f).version))
 
 /* Low memory check */
-#define IS_LOW_MEM			(totalram_pages <= ((SZ_1G + SZ_512M) >> PAGE_SHIFT))
+#define IS_LOW_MEM			(totalram_pages() <= ((SZ_1G + SZ_512M) >> PAGE_SHIFT))
 #define SZ_600M				(6 * 1024 * 1024)
 
 #endif /* __MFC_COMMON_H */

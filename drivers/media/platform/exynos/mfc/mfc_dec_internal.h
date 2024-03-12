@@ -15,7 +15,11 @@
 
 #include "mfc_common.h"
 
-struct mfc_fmt dec_formats[] = {
+extern struct mfc_ctrls_ops decoder_ctrls_ops;
+extern struct vb2_ops mfc_dec_qops;
+void mfc_dec_set_default_format(struct mfc_ctx *ctx);
+
+static struct mfc_fmt dec_formats[] = {
 	{
 		.name = "4:2:0 3 Planes Y/Cb/Cr",
 		.fourcc = V4L2_PIX_FMT_YUV420M,
@@ -313,6 +317,14 @@ struct mfc_fmt dec_formats[] = {
 		.mem_planes = 1,
 	},
 	{
+		.name = "AV1 Encoded Stream",
+		.fourcc = V4L2_PIX_FMT_AV1,
+		.codec_mode = MFC_REG_CODEC_AV1_DEC,
+		.type = MFC_FMT_STREAM,
+		.num_planes = 1,
+		.mem_planes = 1,
+	},
+	{
 		.name = "HEVC Encoded Stream",
 		.fourcc = V4L2_PIX_FMT_HEVC,
 		.codec_mode = MFC_REG_CODEC_HEVC_DEC,
@@ -330,9 +342,9 @@ struct mfc_fmt dec_formats[] = {
 	},
 };
 
-#define NUM_FORMATS ARRAY_SIZE(dec_formats)
+#define DEC_NUM_FORMATS ARRAY_SIZE(dec_formats)
 
-static struct v4l2_queryctrl controls[] = {
+static struct v4l2_queryctrl dec_controls[] = {
 	{
 		.id = V4L2_CID_MPEG_MFC51_VIDEO_DECODER_H264_DISPLAY_DELAY,
 		.type = V4L2_CTRL_TYPE_INTEGER,
@@ -577,6 +589,24 @@ static struct v4l2_queryctrl controls[] = {
 		.default_value = 0,
 	},
 	{
+		.id = V4L2_CID_MPEG_MFC_AV1_FILM_GRAIN_USER_SHARED_HANDLE,
+		.type = V4L2_CTRL_TYPE_INTEGER,
+		.name = "AV1 Film Grain SEI metadata",
+		.minimum = INT_MIN,
+		.maximum = INT_MAX,
+		.step = 1,
+		.default_value = 0,
+	},
+	{
+		.id = V4L2_CID_MPEG_MFC_AV1_FILM_GRAIN_PRESENT,
+		.type = V4L2_CTRL_TYPE_INTEGER,
+		.name = "AV1 Film Grain presented",
+		.minimum = 0,
+		.maximum = 1,
+		.step = 1,
+		.default_value = 0,
+	},
+	{
 		.id = V4L2_CID_MPEG_VIDEO_DECODING_ORDER,
 		.type = V4L2_CTRL_TYPE_BOOLEAN,
 		.name = "decoding order enable",
@@ -595,6 +625,51 @@ static struct v4l2_queryctrl controls[] = {
 		.default_value = 0,
 	},
 	{
+		.id = V4L2_CID_MPEG_VIDEO_GET_DISPLAY_DELAY,
+		.type = V4L2_CTRL_TYPE_INTEGER,
+		.name = "display delay for first frame",
+		.minimum = INT_MIN,
+		.maximum = INT_MAX,
+		.step = 1,
+		.default_value = 0,
+	},
+	{
+		.id = V4L2_CID_MPEG_MFC51_VIDEO_FRAME_POC,
+		.type = V4L2_CTRL_TYPE_INTEGER,
+		.name = "Frame POC",
+		.minimum = 0,
+		.maximum = INT_MAX,
+		.step = 1,
+		.default_value = 0,
+	},
+	{
+		.id = V4L2_CID_MPEG_VIDEO_SRC_BUF_FLAG,
+		.type = V4L2_CTRL_TYPE_INTEGER,
+		.name = "Buffer flag",
+		.minimum = INT_MIN,
+		.maximum = INT_MAX,
+		.step = 1,
+		.default_value = 0,
+	},
+	{
+		.id = V4L2_CID_MPEG_VIDEO_DST_BUF_FLAG,
+		.type = V4L2_CTRL_TYPE_INTEGER,
+		.name = "Buffer flag",
+		.minimum = INT_MIN,
+		.maximum = INT_MAX,
+		.step = 1,
+		.default_value = 0,
+	},
+	{
+		.id = V4L2_CID_MPEG_VIDEO_SKIP_LAZY_UNMAP,
+		.type = V4L2_CTRL_TYPE_BOOLEAN,
+		.name = "skip lazy unmap",
+		.minimum = 0,
+		.maximum = 1,
+		.step = 1,
+		.default_value = 0,
+	},
+	{
 		.id = V4L2_CID_MPEG_VIDEO_PRIORITY,
 		.type = V4L2_CTRL_TYPE_INTEGER,
 		.name = "priority",
@@ -605,6 +680,6 @@ static struct v4l2_queryctrl controls[] = {
 	},
 };
 
-#define NUM_CTRLS ARRAY_SIZE(controls)
+#define DEC_NUM_CTRLS ARRAY_SIZE(dec_controls)
 
 #endif /* __MFC_DEC_INTERNAL_H */

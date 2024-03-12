@@ -15,6 +15,10 @@
 
 #include "mfc_common.h"
 
+extern struct mfc_ctrls_ops encoder_ctrls_ops;
+extern struct vb2_ops mfc_enc_qops;
+void mfc_enc_set_default_format(struct mfc_ctx *ctx);
+
 /*
  * RGB encoding information to avoid confusion.
  *
@@ -24,7 +28,7 @@
  * 2       4       6       8       0
  * |B......BG......GR......RA......A|
  */
-struct mfc_fmt enc_formats[] = {
+static struct mfc_fmt enc_formats[] = {
 	{
 		.name = "4:2:0 3 Planes Y/Cb/Cr",
 		.fourcc = V4L2_PIX_FMT_YUV420M,
@@ -274,6 +278,14 @@ struct mfc_fmt enc_formats[] = {
 		.mem_planes = 1,
 	},
 	{
+		.name = "RGB8888 1 Plane 32bpp",
+		.fourcc = V4L2_PIX_FMT_RGB32,
+		.codec_mode = MFC_FORMATS_NO_CODEC,
+		.type = MFC_FMT_FRAME | MFC_FMT_RGB,
+		.num_planes = 1,
+		.mem_planes = 1,
+	},
+	{
 		.name = "H264 Encoded Stream",
 		.fourcc = V4L2_PIX_FMT_H264,
 		.codec_mode = MFC_REG_CODEC_H264_ENC,
@@ -331,9 +343,9 @@ struct mfc_fmt enc_formats[] = {
 	},
 };
 
-#define NUM_FORMATS ARRAY_SIZE(enc_formats)
+#define ENC_NUM_FORMATS ARRAY_SIZE(enc_formats)
 
-static struct v4l2_queryctrl controls[] = {
+static struct v4l2_queryctrl enc_controls[] = {
 	{
 		.id = V4L2_CID_CACHEABLE,
 		.type = V4L2_CTRL_TYPE_INTEGER,
@@ -2469,6 +2481,7 @@ static struct v4l2_queryctrl controls[] = {
 		.name = "Chroma QP index for Cb component",
 		.minimum = -12,
 		.maximum = 12,
+		.step = 1,
 		.default_value = 0,
 	},
 	{
@@ -2477,6 +2490,43 @@ static struct v4l2_queryctrl controls[] = {
 		.name = "Chroma QP index for Cr component",
 		.minimum = -12,
 		.maximum = 12,
+		.step = 1,
+		.default_value = 0,
+	},
+	{
+		.id = V4L2_CID_MPEG_VIDEO_SRC_BUF_FLAG,
+		.type = V4L2_CTRL_TYPE_INTEGER,
+		.name = "Buffer flag",
+		.minimum = INT_MIN,
+		.maximum = INT_MAX,
+		.step = 1,
+		.default_value = 0,
+	},
+	{
+		.id = V4L2_CID_MPEG_VIDEO_DST_BUF_FLAG,
+		.type = V4L2_CTRL_TYPE_INTEGER,
+		.name = "Buffer flag",
+		.minimum = INT_MIN,
+		.maximum = INT_MAX,
+		.step = 1,
+		.default_value = 0,
+	},
+	{
+		.id = V4L2_CID_MPEG_VIDEO_GDC_VOTF,
+		.type = V4L2_CTRL_TYPE_INTEGER,
+		.name = "GDC vOTF",
+		.minimum = 0,
+		.maximum = 1,
+		.step = 1,
+		.default_value = 0,
+	},
+	{
+		.id = V4L2_CID_MPEG_VIDEO_SKIP_LAZY_UNMAP,
+		.type = V4L2_CTRL_TYPE_BOOLEAN,
+		.name = "skip lazy unmap",
+		.minimum = 0,
+		.maximum = 1,
+		.step = 1,
 		.default_value = 0,
 	},
 	{
@@ -2489,6 +2539,15 @@ static struct v4l2_queryctrl controls[] = {
 		.default_value = 60000,
 	},
 	{
+		.id = V4L2_CID_MPEG_VIDEO_GOP_CTRL,
+		.type = V4L2_CTRL_TYPE_BOOLEAN,
+		.name = "Meaning of GOP_SIZE",
+		.minimum = 0,
+		.maximum = 1,
+		.step = 1,
+		.default_value = 0,
+	},
+	{
 		.id = V4L2_CID_MPEG_VIDEO_PRIORITY,
 		.type = V4L2_CTRL_TYPE_INTEGER,
 		.name = "priority",
@@ -2497,8 +2556,17 @@ static struct v4l2_queryctrl controls[] = {
 		.step = 1,
 		.default_value = 0,
 	},
+	{
+		.id = V4L2_CID_MPEG_VIDEO_MIN_QUALITY,
+		.type = V4L2_CTRL_TYPE_BOOLEAN,
+		.name = "MIN quality mode enable",
+		.minimum = 0,
+		.maximum = 1,
+		.step = 1,
+		.default_value = 0,
+	},
 };
 
-#define NUM_CTRLS ARRAY_SIZE(controls)
+#define ENC_NUM_CTRLS ARRAY_SIZE(enc_controls)
 
 #endif /* __MFC_ENC_INTERNAL_H */

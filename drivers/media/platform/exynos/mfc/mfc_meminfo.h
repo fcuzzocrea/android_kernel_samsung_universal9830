@@ -22,5 +22,5 @@ void mfc_meminfo_cleanup_inbuf_q(struct mfc_ctx *ctx);
 void mfc_meminfo_cleanup_outbuf_q(struct mfc_ctx *ctx);
 
 int mfc_meminfo_get_dev(struct mfc_dev *dev);
-int mfc_meminfo_get_ctx(struct mfc_ctx *ctx);
+//int mfc_meminfo_get_ctx(struct mfc_ctx *ctx);
 #endif /* __MFC_MEMINFO_H */
