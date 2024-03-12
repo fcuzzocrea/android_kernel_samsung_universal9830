@@ -52,6 +52,10 @@
 #include "mfc_buf.h"
 #include "mfc_mem.h"
 
+#ifdef CONFIG_S3C2410_WATCHDOG
+#include <soc/samsung/exynos-debug.h>
+#endif
+
 #define MFC_CORE_NAME			"mfc-core"
 
 struct _mfc_trace_logging g_mfc_core_trace_logging[MFC_TRACE_LOG_COUNT_MAX];
@@ -470,7 +474,7 @@ static int __mfc_itmon_notifier(struct notifier_block *nb, unsigned long action,
 	core->itmon_notified = 1;
 	ret = NOTIFY_BAD;
 
-	dbg_snapshot_expire_watchdog();
+	s3c2410wdt_set_emergency_reset(0, 0);
 	BUG();
 
 	return ret;

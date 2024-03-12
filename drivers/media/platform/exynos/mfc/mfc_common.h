@@ -20,7 +20,7 @@
 #include <linux/ion_exynos.h>
 #include <media/videobuf2-dma-sg.h>
 #include <asm/cacheflush.h>
-#include <soc/samsung/debug-snapshot.h>
+//#include <soc/samsung/debug-snapshot.h>
 
 #include "mfc_data_struct.h"
 #include "mfc_regs.h"
