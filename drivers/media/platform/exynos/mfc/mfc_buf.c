@@ -821,9 +821,6 @@ int mfc_power_on_verify_fw(struct mfc_core *core, unsigned int fw_id,
 		phys_addr_t fw_phys_base, size_t fw_bin_size, size_t fw_mem_size)
 {
 	int ret = 0;
-#if IS_ENABLED(CONFIG_EXYNOS_S2MPU)
-	uint64_t ret64 = 0;
-#endif
 
 	mfc_core_debug(2, "power on\n");
 	ret = mfc_core_pm_power_on(core);
@@ -831,22 +828,6 @@ int mfc_power_on_verify_fw(struct mfc_core *core, unsigned int fw_id,
 		mfc_core_err("Failed block power on, ret=%d\n", ret);
 		return ret;
 	}
-
-#if IS_ENABLED(CONFIG_EXYNOS_S2MPU)
-	/* Request F/W verification. This must be requested after power on */
-	ret64 = exynos_verify_subsystem_fw(core->name, fw_id,
-				fw_phys_base, fw_bin_size, fw_mem_size);
-	if (ret64) {
-		mfc_core_err("Failed F/W verification, ret=%llu\n", ret64);
-		return -EIO;
-	}
-
-	ret64 = exynos_request_fw_stage2_ap(core->name);
-	if (ret64) {
-		mfc_core_err("Failed F/W verification to S2MPU, ret=%llu\n", ret64);
-		return -EIO;
-	}
-#endif
 
 	return 0;
 }

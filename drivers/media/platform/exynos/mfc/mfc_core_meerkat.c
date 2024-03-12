@@ -25,6 +25,14 @@
 #include "mfc_sync.h"
 #include "mfc_queue.h"
 
+#if IS_ENABLED(CONFIG_VIDEO_EXYNOS_TSMUX)
+#include "media/exynos_tsmux.h"
+#endif
+
+#ifdef CONFIG_S3C2410_WATCHDOG
+#include <soc/samsung/exynos-debug.h>
+#endif
+
 #define MFC_SFR_AREA_COUNT	23
 #define MFC1_SFR_AREA_COUNT	4
 static void __mfc_dump_regs(struct mfc_core *core)
@@ -789,7 +797,7 @@ static void __mfc_dump_info_and_stop_hw(struct mfc_core *core)
 	}
 
 panic:
-	dbg_snapshot_expire_watchdog();
+	s3c2410wdt_set_emergency_reset(0, 0);
 	BUG();
 }
 
