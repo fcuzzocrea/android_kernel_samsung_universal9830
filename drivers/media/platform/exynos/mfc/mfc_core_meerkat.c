@@ -230,7 +230,6 @@ static void __mfc_merge_errorinfo_data(struct mfc_core *core, bool px_fault)
 	dev_err(core->device, "%s\n", errorinfo);
 
 #if IS_ENABLED(CONFIG_SEC_DEBUG_EXTRA_INFO)
-	//sec_debug_set_extra_info_mfc_error(errorinfo);  // from S-LSI patch on 05/06
 	secdbg_exin_set_mfc_error(errorinfo);
 #endif
 }
@@ -365,27 +364,24 @@ void mfc_dump_state(struct mfc_dev *dev)
 
 	for (i = 0; i < MFC_NUM_CONTEXTS; i++) {
 		if (dev->ctx[i]) {
-#if IS_ENABLED(CONFIG_EXYNOS_THERMAL_V2)
-			mfc_dev_err("- ctx[%d] %s %s, %s, %s, size: %dx%d@%ldfps(tmu: %dfps, op: %ldfps), crop: %d %d %d %d\n",
-#else
-			mfc_dev_err("- ctx[%d] %s %s, %s, %s, size: %dx%d@%ldfps(op: %ldfps), crop: %d %d %d %d\n",
-#endif
+			mfc_dev_err("- ctx[%d] %s %s, %s, %s, size: %dx%d@%ldfps(src_ts: %ldfps, tmu: %dfps, op: %ldfps), crop: %d %d %d %d\n",
 				dev->ctx[i]->num,
 				dev->ctx[i]->type == MFCINST_DECODER ? "DEC" : "ENC",
 				dev->ctx[i]->is_drm ? "Secure" : "Normal",
 				dev->ctx[i]->src_fmt->name,
 				dev->ctx[i]->dst_fmt->name,
 				dev->ctx[i]->img_width, dev->ctx[i]->img_height,
+				dev->ctx[i]->framerate / 1000,
 				dev->ctx[i]->last_framerate / 1000,
-#if IS_ENABLED(CONFIG_EXYNOS_THERMAL_V2)
 				dev->tmu_fps,
-#endif
 				dev->ctx[i]->operating_framerate,
 				dev->ctx[i]->crop_width, dev->ctx[i]->crop_height,
 				dev->ctx[i]->crop_left, dev->ctx[i]->crop_top);
-			mfc_dev_err("	main core: %d, op_mode: %d(stream: %d), queue_cnt(src:%d, dst:%d, ref:%d, qsrc:%d, qdst:%d)\n",
-				dev->ctx[i]->op_core_num[MFC_CORE_MAIN],
-				dev->ctx[i]->op_mode, dev->ctx[i]->stream_op_mode,
+			mfc_dev_err("	master core: %d, op_mode: %d(stream: %d), idle_mode: %d, wait_state %d, prio %d, rt %d, queue_cnt(src:%d, dst:%d, ref:%d, qsrc:%d, qdst:%d)\n",
+				dev->ctx[i]->op_core_num[MFC_CORE_MASTER],
+				dev->ctx[i]->op_mode, dev->ctx[i]->stream_op_mode, dev->ctx[i]->idle_mode,
+				dev->ctx[i]->wait_state,
+				dev->ctx[i]->prio, dev->ctx[i]->rt,
 				mfc_get_queue_count(&dev->ctx[i]->buf_queue_lock, &dev->ctx[i]->src_buf_ready_queue),
 				mfc_get_queue_count(&dev->ctx[i]->buf_queue_lock, &dev->ctx[i]->dst_buf_queue),
 				mfc_get_queue_count(&dev->ctx[i]->buf_queue_lock, &dev->ctx[i]->ref_buf_queue),
@@ -724,16 +720,12 @@ static void __mfc_dump_info(struct mfc_core *core)
 	__mfc_save_logging_sfr(core);
 	__mfc_dump_buffer_info(core);
 	__mfc_dump_regs(core);
-
-	/* If there was fault addr, sysmmu info is already printed out */
-	if (!core->logging_data->fault_addr)
-		exynos_sysmmu_show_status(core->device);
 }
 
 static void __mfc_dump_info_and_stop_hw(struct mfc_core *core)
 {
 	struct mfc_dev *dev = core->dev;
-	struct mfc_core *main_core;
+	struct mfc_core *master_core;
 	struct mfc_ctx *ctx;
 	int curr_ctx = __mfc_get_curr_ctx(core);
 	int two_dump = 0;
@@ -752,21 +744,21 @@ static void __mfc_dump_info_and_stop_hw(struct mfc_core *core)
 		dev_err(dev->device, "[2CORE] there is multi core mode (op mode: %d)\n",
 				ctx->op_mode);
 		two_dump = 1;
-		main_core = mfc_get_main_core(dev, ctx);
-		if (!main_core) {
-			dev_err(dev->device, "[2CORE] There is no main core\n");
+		master_core = mfc_get_master_core(dev, ctx);
+		if (!master_core) {
+			dev_err(dev->device, "[2CORE] There is no master core\n");
 			goto panic;
 		}
-		if (core == main_core) {
-			/* issued core maincore, dump sub core also */
-			core = mfc_get_sub_core(dev, ctx);
+		if (core == master_core) {
+			/* issued core master, dump slave core also */
+			core = mfc_get_slave_core(dev, ctx);
 			if (!core) {
-				dev_err(dev->device, "[2CORE] There is no sub core\n");
+				dev_err(dev->device, "[2CORE] There is no slave core\n");
 				goto panic;
 			}
 		} else {
-			/* issued core subcore, dump main core also */
-			core = main_core;
+			/* issued core slave, dump master core also */
+			core = master_core;
 		}
 		__mfc_dump_info(core);
 	}

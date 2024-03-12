@@ -13,7 +13,7 @@
 #ifndef __MFC_DATA_STRUCT_H
 #define __MFC_DATA_STRUCT_H __FILE__
 
-#if IS_ENABLED(CONFIG_ARM_EXYNOS_DEVFREQ)
+#if IS_ENABLED(CONFIG_EXYNOS_PM_QOS) || IS_ENABLED(CONFIG_EXYNOS_PM_QOS_MODULE)
 #define CONFIG_MFC_USE_BUS_DEVFREQ
 #endif
 
@@ -28,7 +28,7 @@
 //#define CONFIG_MFC_REG_TEST
 
 #ifdef CONFIG_MFC_USE_BUS_DEVFREQ
-#include <linux/pm_qos.h>
+#include <soc/samsung/exynos_pm_qos.h>
 #endif
 #ifdef CONFIG_MFC_USE_BTS
 #include <soc/samsung/bts.h>
@@ -248,12 +248,13 @@ enum mfc_mb_flag {
 	MFC_FLAG_DISP_RES_CHANGE	= 7,
 	MFC_FLAG_UNCOMP			= 8,
 	MFC_FLAG_FRAMERATE_CH		= 9,
-	MFC_FLAG_IDR			= 10,
+	MFC_FLAG_SYNC_FRAME		= 10,
 	MFC_FLAG_AV1_FILM_GRAIN		= 11,
+	MFC_FLAG_MULTIFRAME		= 12,
 	/* Driver set to user when SRC DQbuf */
 	MFC_FLAG_CONSUMED_ONLY		= 15,
 	/* User set to driver when SRC Qbuf */
-	MFC_FLAG_ENC_SRC_FAKE		= 27,
+	MFC_FLAG_ENC_SRC_DUMMY		= 27,
 	MFC_FLAG_ENC_SRC_UNCOMP		= 28,
 	MFC_FLAG_CSD			= 29,
 	MFC_FLAG_EMPTY_DATA		= 30,
@@ -357,13 +358,14 @@ enum mfc_qos_control {
 
 enum mfc_ts_type {
 	MFC_TS_SRC		= 0x1,
-	MFC_TS_DST		= 0x2,
+	MFC_TS_DST_Q		= 0x2,
+	MFC_TS_SRC_Q		= 0x3,
 };
 
 enum mfc_core_type {
 	MFC_CORE_INVALID		= -1,
-	MFC_CORE_MAIN			= 0,
-	MFC_CORE_SUB			= 1,
+	MFC_CORE_MASTER			= 0,
+	MFC_CORE_SLAVE			= 1,
 	MFC_CORE_TYPE_NUM		= 2,
 };
 
@@ -381,6 +383,18 @@ enum mfc_op_mode {
 	MFC_OP_SWITCHING		= 3,
 	MFC_OP_SWITCH_TO_SINGLE		= 4,
 	MFC_OP_SWITCH_BUT_MODE2		= 5,
+};
+
+enum mfc_real_time {
+	/* real-time */
+	MFC_RT                  = 0,
+	/* low-priority real-time */
+	MFC_RT_LOW              = 1,
+	/* constrained real-time */
+	MFC_RT_CON              = 2,
+	/* non real-time */
+	MFC_NON_RT              = 3,
+	MFC_RT_UNDEFINED        = 4,
 };
 
 /* core driver */
@@ -672,6 +686,8 @@ struct mfc_special_buf {
 	phys_addr_t			paddr;
 	void				*vaddr;
 	size_t				size;
+	size_t				map_size;
+	unsigned int			heapmask;
 };
 
 struct mfc_mem {
@@ -764,6 +780,7 @@ struct mfc_qos_weight {
 	unsigned int weight_gpb;
 	unsigned int weight_num_of_tile;
 	unsigned int weight_super64_bframe;
+	unsigned int weight_mbaff;
 };
 
 struct mfc_feature {
@@ -813,6 +830,9 @@ struct mfc_platdata {
 	struct mfc_feature wait_nalq_status;
 	struct mfc_feature drm_switch_predict;
 	struct mfc_feature sbwc_enc_src_ctrl;
+	struct mfc_feature enc_idr_flag;
+	struct mfc_feature min_quality_mode;
+	struct mfc_feature enc_ts_delta;
 
 	/* AV1 Decoder */
 	unsigned int support_av1_dec;
@@ -832,7 +852,9 @@ struct mfc_platdata {
 	unsigned int mfc_freqs[MAX_NUM_MFC_FREQ];
 	unsigned int max_Kbps[MAX_NUM_MFC_BPS];
 	unsigned int core_balance;
+	unsigned int iova_threshold;
 	unsigned int idle_clk_ctrl;
+	unsigned int enc_timing_dis;
 };
 
 struct mfc_core_platdata {
@@ -938,7 +960,10 @@ typedef struct __EncoderInputStr {
 	int St2094_40sei[30];
 	int SourcePlaneStride[3];
 	int SourcePlane2BitStride[2];
-} EncoderInputStr; /* 86*4 = 344 bytes */
+	int MVHorRange;
+	int MVVerRange;
+	int TimeStampDelta;
+} EncoderInputStr; /* 89*4 = 356 bytes */
 
 typedef struct __DecoderOutputStr {
 	int StartCode; /* 0xAAAAAAAA; Decoder output structure marker */
@@ -1066,6 +1091,7 @@ typedef struct _nal_queue_handle {
 struct _otf_buf_addr {
 	dma_addr_t otf_daddr[HWFC_MAX_BUF][3];
 	struct dma_buf_attachment *otf_buf_attach[HWFC_MAX_BUF];
+	struct sg_table *sgt[HWFC_MAX_BUF];
 };
 
 struct _otf_buf_info {
@@ -1148,6 +1174,7 @@ struct mfc_dev {
 	struct mfc_core	*core[MFC_NUM_CORE];
 	int num_core;
 	int fw_date;
+	size_t fw_base_offset;
 
 	struct device		*device;
 	struct v4l2_device	v4l2_dev;
@@ -1163,6 +1190,8 @@ struct mfc_dev {
 	int num_inst;
 	int num_otf_inst;
 	int num_drm_inst;
+	int num_dec_inst;
+	int num_enc_inst;
 
 	unsigned long otf_inst_bits;
 	unsigned long multi_core_inst_bits;
@@ -1175,6 +1204,7 @@ struct mfc_dev {
 	int move_ctx_cnt;
 	struct list_head ctx_list;
 	spinlock_t ctx_list_lock;
+	unsigned int core_balance;
 
 	atomic_t queued_bits;
 	spinlock_t idle_bits_lock;
@@ -1202,6 +1232,9 @@ struct mfc_dev {
 	/* QoS bitrate */
 	struct mfc_bitrate_table bitrate_table[MAX_NUM_MFC_FREQ];
 	int bps_ratio;
+
+	/* Lazy unmap disable */
+	int skip_lazy_unmap;
 
 #if IS_ENABLED(CONFIG_EXYNOS_THERMAL_V2)
 	struct notifier_block tmu_nb;
@@ -1253,6 +1286,7 @@ struct mfc_core_ops {
 
 struct mfc_core {
 	struct device		*device;
+	struct iommu_domain	*domain;
 
 	const struct mfc_core_ops *core_ops;
 
@@ -1353,11 +1387,11 @@ struct mfc_core {
 	struct list_head qos_queue;
 	atomic_t qos_req_cur;
 #ifdef CONFIG_MFC_USE_BUS_DEVFREQ
-	struct pm_qos_request qos_req_mfc_noidle;
-	struct pm_qos_request qos_req_mfc;
-	struct pm_qos_request qos_req_int;
-	struct pm_qos_request qos_req_mif;
-	struct pm_qos_request qos_req_cluster[MAX_NUM_CLUSTER];
+	struct exynos_pm_qos_request qos_req_mfc_noidle;
+	struct exynos_pm_qos_request qos_req_mfc;
+	struct exynos_pm_qos_request qos_req_int;
+	struct exynos_pm_qos_request qos_req_mif;
+	struct exynos_pm_qos_request qos_req_cluster[MAX_NUM_CLUSTER];
 #endif
 	struct mutex qos_mutex;
 	int mfc_freq_by_bps;
@@ -1640,6 +1674,7 @@ struct mfc_enc_params {
 	u8 roi_enable;
 	u8 ivf_header_disable;	/* VP8, VP9 */
 	u8 fixed_target_bit;
+	u8 min_quality_mode;	/* H.264, HEVC when RC_MODE is 2(VBR) */
 
 	u32 check_color_range;
 	u32 color_range;
@@ -1951,6 +1986,7 @@ struct mfc_dec {
 	int mv_count;
 	int idr_decoding;
 	int is_interlaced;
+	int is_mbaff;
 	int is_dts_mode;
 	int stored_tag;
 	int inter_res_change;
@@ -1982,7 +2018,11 @@ struct mfc_dec {
 	unsigned long dynamic_set;
 	unsigned long dynamic_used;
 
+	/* indicate multiframe in case of VP9, AV1 */
 	int has_multiframe;
+	/* disable NALQ for multiframe in case of MPEG4 PB */
+	int is_multiframe;
+	/* multiple show frame for AV1 */
 	int is_multiple_show;
 
 	unsigned int num_of_tile_over_4;
@@ -2048,7 +2088,7 @@ struct mfc_enc {
 	int sbwc_option;
 	struct mfc_fmt *uncomp_fmt;
 
-	int fake_src;
+	int dummy_src;
 	int empty_data;
 
 	int stored_tag;
@@ -2082,6 +2122,8 @@ struct mfc_ctx {
 	struct _otf_handle *otf_handle;
 
 	int num;
+	int prio;
+	enum mfc_real_time rt;
 
 	struct mfc_fmt *src_fmt;
 	struct mfc_fmt *dst_fmt;
@@ -2095,7 +2137,7 @@ struct mfc_ctx {
 	spinlock_t buf_queue_lock;
 
 	enum mfc_inst_type type;
-	int subcore_inst_no;
+	int slave_inst_no;
 
 	int img_width;
 	int img_height;
@@ -2131,6 +2173,7 @@ struct mfc_ctx {
 	struct mfc_core_lock corelock;
 	int serial_src_index;
 	int curr_src_index;
+	int cmd_counter;
 	struct mutex op_mode_mutex;
 
 	/* interrupt lock */
@@ -2169,13 +2212,15 @@ struct mfc_ctx {
 	unsigned long framerate;
 	unsigned long last_framerate;
 	unsigned long operating_framerate;
-	unsigned long disp_framerate;
+	unsigned long dst_q_framerate;
+	unsigned long src_q_framerate;
 	unsigned int qos_ratio;
 	bool update_framerate;
 	bool update_bitrate;
 
 	struct mfc_ts_control src_ts;
-	struct mfc_ts_control dst_ts;
+	struct mfc_ts_control dst_q_ts;
+	struct mfc_ts_control src_q_ts;
 
 	/* bitrate control for QoS*/
 	struct mfc_bitrate bitrate_array[MAX_TIME_INDEX];
@@ -2204,6 +2249,9 @@ struct mfc_ctx {
 
 	/* QoS idle */
 	enum mfc_idle_mode idle_mode;
+
+	/* Lazy unmap disable */
+	int skip_lazy_unmap;
 
 	/* external structure */
 	struct v4l2_fh fh;

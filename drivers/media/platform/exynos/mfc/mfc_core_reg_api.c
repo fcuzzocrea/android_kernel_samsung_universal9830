@@ -71,7 +71,6 @@ void mfc_core_dbg_set_addr(struct mfc_core *core)
 	MFC_CORE_WRITEL(buf_size->dbg_info_buf, MFC_REG_DBG_BUFFER_SIZE);
 }
 
-#if IS_ENABLED(CONFIG_MFC_USES_OTF)
 void mfc_core_otf_set_frame_addr(struct mfc_core *core, struct mfc_ctx *ctx,
 		int num_planes)
 {
@@ -120,7 +119,6 @@ void mfc_core_otf_set_votf_index(struct mfc_core *core, struct mfc_ctx *ctx,
 	mfc_debug(2, "[OTF] set vOTF index, %d\n", job_id);
 	MFC_CORE_WRITEL(job_id, MFC_REG_E_SOURCE_VOTF_BUF_INDEX);
 }
-#endif
 
 unsigned int mfc_get_frame_error_type(struct mfc_ctx *ctx, unsigned int err)
 {

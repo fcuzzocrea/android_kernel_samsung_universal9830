@@ -445,8 +445,8 @@ static int mfc_dec_g_fmt_vid_cap_mplane(struct file *file, void *priv,
 
 	mfc_debug_enter();
 
-	/* During g_fmt, context information is need to for only main core */
-	core = mfc_get_main_core_lock(dev, ctx);
+	/* During g_fmt, context information is need to for only Master core */
+	core = mfc_get_master_core_lock(dev, ctx);
 	core_ctx = core->core_ctx[ctx->num];
 
 	mfc_debug(2, "dec dst g_fmt, state: %d wait_state: %d\n",
@@ -479,6 +479,10 @@ static int mfc_dec_g_fmt_vid_cap_mplane(struct file *file, void *priv,
 		 */
 		if (mfc_wait_for_done_core_ctx(core_ctx,
 					MFC_REG_R2H_CMD_SEQ_DONE_RET)) {
+			if (core_ctx->int_err == MFC_REG_ERR_UNSUPPORTED_FEATURE) {
+				mfc_ctx_err("header parsing failed by unsupported feature\n");
+				return -EINVAL;
+			}
 			mfc_ctx_err("header parsing failed\n");
 			return -EAGAIN;
 		}
@@ -487,10 +491,11 @@ static int mfc_dec_g_fmt_vid_cap_mplane(struct file *file, void *priv,
 	if (core_ctx->state >= MFCINST_HEAD_PARSED &&
 	    core_ctx->state < MFCINST_ABORT) {
 		/* This is run on CAPTURE (decode output) */
-		if (IS_MULTI_MODE(ctx)) {
-			mfc_ctx_info("[2CORE] start the sub core\n");
+		if ((ctx->stream_op_mode == MFC_OP_TWO_MODE1) ||
+				(ctx->stream_op_mode == MFC_OP_TWO_MODE2)) {
+			mfc_ctx_info("[2CORE] start the slave core\n");
 			if (mfc_rm_instance_setup(dev, ctx)) {
-				mfc_ctx_err("[2CORE] failed to setup sub core\n");
+				mfc_ctx_err("[2CORE] failed to setup slave core\n");
 				return -EAGAIN;
 			}
 		}
@@ -873,6 +878,7 @@ static int mfc_dec_qbuf(struct file *file, void *priv, struct v4l2_buffer *buf)
 
 		mfc_idle_update_queued(dev, ctx);
 		mfc_qos_update_bitrate(ctx, buf->m.planes[0].bytesused);
+		mfc_qos_update_bufq_framerate(ctx, MFC_TS_SRC_Q);
 		mfc_qos_update_framerate(ctx);
 		mfc_rm_qos_control(ctx, MFC_QOS_TRIGGER);
 
@@ -884,14 +890,14 @@ static int mfc_dec_qbuf(struct file *file, void *priv, struct v4l2_buffer *buf)
 			mfc_debug(2, "Src size = %d\n", buf->m.planes[0].bytesused);
 		}
 
-		ret = vb2_qbuf(&ctx->vq_src, buf);
+		ret = vb2_qbuf(&ctx->vq_src, NULL, buf);
 	} else {
 		mfc_debug(4, "dec dst buf[%d] Q\n", buf->index);
 		mfc_idle_update_queued(dev, ctx);
-		mfc_qos_update_disp_framerate(ctx);
+		mfc_qos_update_bufq_framerate(ctx, MFC_TS_DST_Q);
 		mfc_qos_update_framerate(ctx);
 		mfc_rm_qos_control(ctx, MFC_QOS_TRIGGER);
-		ret = vb2_qbuf(&ctx->vq_dst, buf);
+		ret = vb2_qbuf(&ctx->vq_dst, NULL, buf);
 	}
 
 	mfc_debug_leave();
@@ -1022,7 +1028,7 @@ static int mfc_dec_streamoff(struct file *file, void *priv,
 		ret = vb2_streamoff(&ctx->vq_src, type);
 	} else if (type == V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE) {
 		mfc_debug(4, "dec dst streamoff\n");
-		mfc_qos_reset_disp_framerate(ctx);
+		mfc_qos_reset_bufq_framerate(ctx);
 		ret = vb2_streamoff(&ctx->vq_dst, type);
 		if (!ret)
 			mfc_rm_qos_control(ctx, MFC_QOS_OFF);
@@ -1062,6 +1068,7 @@ static int __mfc_dec_ext_info(struct mfc_ctx *ctx)
 	val |= DEC_SET_BUF_FLAG_CTRL;
 	val |= DEC_SET_FRAME_ERR_TYPE;
 	val |= DEC_SET_OPERATING_FPS;
+	val |= DEC_SET_PRIORITY;
 
 	if (MFC_FEATURE_SUPPORT(dev, dev->pdata->skype))
 		val |= DEC_SET_SKYPE_FLAG;
@@ -1095,8 +1102,8 @@ static int __mfc_dec_get_ctrl_val(struct mfc_ctx *ctx, struct v4l2_control *ctrl
 		mfc_debug(5, "it is supported only V4L2_MEMORY_MMAP\n");
 		break;
 	case V4L2_CID_MIN_BUFFERS_FOR_CAPTURE:
-		/* These context information is need to for only main core */
-		core = mfc_get_main_core_lock(dev, ctx);
+		/* These context information is need to for only Master core */
+		core = mfc_get_master_core_lock(dev, ctx);
 		core_ctx = core->core_ctx[ctx->num];
 
 		if (core_ctx->state >= MFCINST_HEAD_PARSED &&
@@ -1133,12 +1140,11 @@ static int __mfc_dec_get_ctrl_val(struct mfc_ctx *ctx, struct v4l2_control *ctrl
 		ctrl->value = dec->crc_enable;
 		break;
 	case V4L2_CID_MPEG_MFC51_VIDEO_CHECK_STATE:
-		core = mfc_get_main_core_lock(dev, ctx);
+		core = mfc_get_master_core_lock(dev, ctx);
 		core_ctx = core->core_ctx[ctx->num];
 		if (ctx->is_dpb_realloc &&
 			mfc_rm_query_state(ctx, EQUAL, MFCINST_HEAD_PARSED))
 			ctrl->value = MFCSTATE_DEC_S3D_REALLOC;
-		/* TODO SAY: DRC is not supported yet in multi core mode */
 		else if (core_ctx->state == MFCINST_RES_CHANGE_FLUSH
 				|| core_ctx->state == MFCINST_RES_CHANGE_END
 				|| core_ctx->state == MFCINST_HEAD_PARSED
@@ -1180,8 +1186,8 @@ static int __mfc_dec_get_ctrl_val(struct mfc_ctx *ctx, struct v4l2_control *ctrl
 		ctrl->value = dec->uncomp_pixfmt;
 		break;
 	case V4L2_CID_MPEG_VIDEO_GET_DISPLAY_DELAY:
-		/* These context information is need to for only main core */
-		core = mfc_get_main_core_lock(dev, ctx);
+		/* These context information is need to for only Master core */
+		core = mfc_get_master_core_lock(dev, ctx);
 		core_ctx = core->core_ctx[ctx->num];
 		if (core_ctx->state >= MFCINST_HEAD_PARSED) {
 			ctrl->value = dec->frame_display_delay;
@@ -1346,9 +1352,20 @@ static int mfc_dec_s_ctrl(struct file *file, void *priv,
 	case V4L2_CID_MPEG_VIDEO_DECODING_ORDER:
 		dec->decoding_order = ctrl->value;
 		break;
+	case V4L2_CID_MPEG_VIDEO_SKIP_LAZY_UNMAP:
+		ctx->skip_lazy_unmap = ctrl->value;
+		mfc_debug(2, "[LAZY_UNMAP] lazy unmap %s\n",
+				ctx->skip_lazy_unmap ? "disable" : "enable");
+		break;
 	case V4L2_CID_MPEG_MFC51_VIDEO_FRAME_RATE:
 		ctx->operating_framerate = ctrl->value;
+		mfc_rm_update_real_time(ctx);
 		mfc_debug(2, "[QoS] user set the operating frame rate: %d\n", ctrl->value);
+		break;
+	case V4L2_CID_MPEG_VIDEO_PRIORITY:
+		ctx->prio = ctrl->value;
+		mfc_rm_update_real_time(ctx);
+		mfc_debug(2, "[PRIO] user set priority: %d\n", ctrl->value);
 		break;
 	default:
 		list_for_each_entry(ctx_ctrl, &ctx->ctrls, list) {
@@ -1377,8 +1394,8 @@ static int mfc_dec_s_ctrl(struct file *file, void *priv,
 }
 
 /* Get cropping information */
-static int mfc_dec_g_crop(struct file *file, void *priv,
-		struct v4l2_crop *cr)
+static int mfc_dec_g_selection(struct file *file, void *priv,
+		struct v4l2_selection *s)
 {
 	struct mfc_ctx *ctx = fh_to_mfc_ctx(file->private_data);
 	struct mfc_dev *dev = ctx->dev;
@@ -1388,20 +1405,23 @@ static int mfc_dec_g_crop(struct file *file, void *priv,
 
 	mfc_debug_enter();
 
-	core = mfc_get_main_core_lock(dev, ctx);
+	if (s->type != V4L2_BUF_TYPE_VIDEO_CAPTURE)
+		return -EINVAL;
+
+	core = mfc_get_master_core_lock(dev, ctx);
 	core_ctx = core->core_ctx[ctx->num];
 
 	if (!ready_to_get_crop(core_ctx)) {
-		mfc_ctx_err("ready to get crop failed\n");
+		mfc_ctx_err("ready to get compose failed\n");
 		return -EINVAL;
 	}
 
 	if (mfc_rm_query_state(ctx, EQUAL, MFCINST_RUNNING)
 			&& dec->detect_black_bar && dec->black_bar_updated) {
-		cr->c.left = dec->black_bar.left;
-		cr->c.top = dec->black_bar.top;
-		cr->c.width = dec->black_bar.width;
-		cr->c.height = dec->black_bar.height;
+		s->r.left = dec->black_bar.left;
+		s->r.top = dec->black_bar.top;
+		s->r.width = dec->black_bar.width;
+		s->r.height = dec->black_bar.height;
 		mfc_debug(2, "[FRAME][BLACKBAR] Cropping info: l=%d t=%d w=%d h=%d\n",
 				dec->black_bar.left,
 				dec->black_bar.top,
@@ -1411,23 +1431,23 @@ static int mfc_dec_g_crop(struct file *file, void *priv,
 		if (ctx->src_fmt->fourcc == V4L2_PIX_FMT_H264 ||
 			ctx->src_fmt->fourcc == V4L2_PIX_FMT_HEVC ||
 			ctx->src_fmt->fourcc == V4L2_PIX_FMT_BPG) {
-			cr->c.left = dec->cr_left;
-			cr->c.top = dec->cr_top;
-			cr->c.width = ctx->img_width - dec->cr_left - dec->cr_right;
-			cr->c.height = ctx->img_height - dec->cr_top - dec->cr_bot;
-			mfc_debug(2, "[FRAME] Cropping info: l=%d t=%d "
+			s->r.left = dec->cr_left;
+			s->r.top = dec->cr_top;
+			s->r.width = ctx->img_width - dec->cr_left - dec->cr_right;
+			s->r.height = ctx->img_height - dec->cr_top - dec->cr_bot;
+			mfc_debug(2, "[FRAME] Composing info: l=%d t=%d "
 					"w=%d h=%d (r=%d b=%d fw=%d fh=%d)\n",
-					dec->cr_left, dec->cr_top,
-					cr->c.width, cr->c.height,
+					s->r.left, s->r.top,
+					s->r.width, s->r.height,
 					dec->cr_right, dec->cr_bot,
 					ctx->img_width, ctx->img_height);
 		} else {
-			cr->c.left = 0;
-			cr->c.top = 0;
-			cr->c.width = ctx->img_width;
-			cr->c.height = ctx->img_height;
-			mfc_debug(2, "[FRAME] Cropping info: w=%d h=%d fw=%d fh=%d\n",
-			                cr->c.width, cr->c.height,
+			s->r.left = 0;
+			s->r.top = 0;
+			s->r.width = ctx->img_width;
+			s->r.height = ctx->img_height;
+			mfc_debug(2, "[FRAME] Composing info: w=%d h=%d fw=%d fh=%d\n",
+					s->r.width, s->r.height,
 					ctx->img_width, ctx->img_height);
 		}
 	}
@@ -1495,8 +1515,8 @@ void mfc_dec_set_default_format(struct mfc_ctx *ctx)
 /* v4l2_ioctl_ops */
 static const struct v4l2_ioctl_ops mfc_dec_ioctl_ops = {
 	.vidioc_querycap		= mfc_dec_querycap,
-	.vidioc_enum_fmt_vid_cap_mplane = mfc_dec_enum_fmt_vid_cap_mplane,
-	.vidioc_enum_fmt_vid_out_mplane = mfc_dec_enum_fmt_vid_out_mplane,
+	.vidioc_enum_fmt_vid_cap	= mfc_dec_enum_fmt_vid_cap_mplane,
+	.vidioc_enum_fmt_vid_out	= mfc_dec_enum_fmt_vid_out_mplane,
 	.vidioc_g_fmt_vid_cap_mplane	= mfc_dec_g_fmt_vid_cap_mplane,
 	.vidioc_g_fmt_vid_out_mplane	= mfc_dec_g_fmt_vid_out_mplane,
 	.vidioc_try_fmt_vid_cap_mplane	= mfc_dec_try_fmt,
@@ -1512,7 +1532,7 @@ static const struct v4l2_ioctl_ops mfc_dec_ioctl_ops = {
 	.vidioc_queryctrl		= mfc_dec_queryctrl,
 	.vidioc_g_ctrl			= mfc_dec_g_ctrl,
 	.vidioc_s_ctrl			= mfc_dec_s_ctrl,
-	.vidioc_g_crop			= mfc_dec_g_crop,
+	.vidioc_g_selection		= mfc_dec_g_selection,
 	.vidioc_g_ext_ctrls		= mfc_dec_g_ext_ctrls,
 };
 

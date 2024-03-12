@@ -335,13 +335,11 @@ int mfc_core_cmd_enc_seq_header(struct mfc_core *core, struct mfc_ctx *ctx)
 	if (core->dev->debugfs.reg_test)
 		mfc_core_set_test_params(core);
 
-#if IS_ENABLED(CONFIG_MFC_USES_OTF)
 	if (ctx->gdc_votf && core->has_gdc_votf && core->has_mfc_votf)
 		mfc_core_set_gdc_votf(core, ctx);
 
 	if (ctx->otf_handle && core->has_dpu_votf && core->has_mfc_votf)
 		mfc_core_set_dpu_votf(core, ctx);
-#endif
 
 	if (core->dev->debugfs.sfr_dump & MFC_DUMP_ENC_SEQ_START)
 		call_dop(core, dump_regs, core);
@@ -387,8 +385,8 @@ int mfc_core_cmd_dec_init_buffers(struct mfc_core *core, struct mfc_ctx *ctx)
 	}
 
 	if (IS_MULTI_MODE(ctx)) {
-		reg |= ((ctx->subcore_inst_no & MFC_REG_RET_INSTANCE_ID_OF_MFC1_MASK)
-				<< MFC_REG_RET_INSTANCE_ID_OF_MFC1_SHIFT);
+		reg |= ((ctx->slave_inst_no & MFC_REG_RET_INSTANCE_ID_OF_SLAVE_MASK)
+				<< MFC_REG_RET_INSTANCE_ID_OF_SLAVE_SHIFT);
 		reg |= (core_ctx->inst_no & MFC_REG_RET_INSTANCE_ID_MASK);
 		MFC_CORE_WRITEL(reg, MFC_REG_INSTANCE_ID);
 	} else {
@@ -539,6 +537,8 @@ int mfc_core_cmd_dec_one_frame(struct mfc_core *core, struct mfc_ctx *ctx,
 		mfc_change_op_mode(ctx, MFC_OP_SWITCH_TO_SINGLE);
 	} else if (ctx->op_mode == MFC_OP_SWITCHING) {
 		mfc_err("[2CORE] It is a mode that can not operate\n");
+	} else if (ctx->op_mode == MFC_OP_SWITCH_TO_SINGLE) {
+		ctx->cmd_counter++;
 	}
 	/* If it is switched to single, interrupt lock is not needed. */
 	if (IS_SWITCH_SINGLE_MODE(ctx))

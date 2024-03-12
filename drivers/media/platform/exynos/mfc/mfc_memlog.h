@@ -16,9 +16,8 @@
 #include <linux/platform_device.h>
 #include "mfc_common.h"
 
-#define MFC_MEMLOG_SIZE		(256*1024)
-#define MFC_MEMLOG_SFR_SIZE	(4*1024)
-#define MEC_MEMLOG_LOG_SIZE	((MFC_MEMLOG_SIZE) - ((dev->num_core) * (MFC_MEMLOG_SFR_SIZE)))
+#define MFC_MEMLOG_SFR_SIZE	(4 * 1024)
+#define MEC_MEMLOG_LOG_SIZE	(512 * 1024)
 
 void mfc_dev_init_memlog(struct platform_device *pdev);
 void mfc_core_init_memlog(struct platform_device *pdev);

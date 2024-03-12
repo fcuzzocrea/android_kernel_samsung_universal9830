@@ -12,10 +12,13 @@
 
 #include <linux/err.h>
 
+#include "mfc_core_enc_param.h"
+
 #include "mfc_core_qos.h"
 #include "mfc_utils.h"
 
 #ifdef CONFIG_MFC_USE_BUS_DEVFREQ
+#define MFC_THROUGHPUT_OFFSET	(PM_QOS_MFC1_THROUGHPUT - PM_QOS_MFC_THROUGHPUT)
 enum {
 	MFC_QOS_ADD,
 	MFC_QOS_UPDATE,
@@ -37,11 +40,13 @@ void mfc_core_perf_boost_enable(struct mfc_core *core)
 
 	if (core->dev->debugfs.perf_boost_mode & MFC_PERF_BOOST_DVFS) {
 		if (pdata->mfc_freq_control)
-			pm_qos_add_request(&core->qos_req_mfc, PM_QOS_MFC_THROUGHPUT,
+			exynos_pm_qos_add_request(&core->qos_req_mfc,
+					PM_QOS_MFC_THROUGHPUT +
+					(core->id * MFC_THROUGHPUT_OFFSET),
 					qos_boost_table->freq_mfc);
-		pm_qos_add_request(&core->qos_req_int, PM_QOS_DEVICE_THROUGHPUT,
+		exynos_pm_qos_add_request(&core->qos_req_int, PM_QOS_DEVICE_THROUGHPUT,
 				qos_boost_table->freq_int);
-		pm_qos_add_request(&core->qos_req_mif, PM_QOS_BUS_THROUGHPUT,
+		exynos_pm_qos_add_request(&core->qos_req_mif, PM_QOS_BUS_THROUGHPUT,
 				qos_boost_table->freq_mif);
 		mfc_core_debug(3, "[QoS][BOOST] DVFS mfc: %d, int:%d, mif:%d\n",
 				qos_boost_table->freq_mfc, qos_boost_table->freq_int,
@@ -65,7 +70,7 @@ void mfc_core_perf_boost_enable(struct mfc_core *core)
 
 	if (core->dev->debugfs.perf_boost_mode & MFC_PERF_BOOST_CPU) {
 		for (i = 0; i < qos_boost_table->num_cluster; i++) {
-			pm_qos_add_request(&core->qos_req_cluster[i], PM_QOS_CLUSTER0_FREQ_MIN + (i * 2),
+			exynos_pm_qos_add_request(&core->qos_req_cluster[i], PM_QOS_CLUSTER0_FREQ_MIN + (i * 2),
 					qos_boost_table->freq_cluster[i]);
 			mfc_core_debug(3, "[QoS][BOOST] CPU cluster[%d]: %d\n",
 					i, qos_boost_table->freq_cluster[i]);
@@ -80,9 +85,9 @@ void mfc_core_perf_boost_disable(struct mfc_core *core)
 
 	if (core->dev->debugfs.perf_boost_mode & MFC_PERF_BOOST_DVFS) {
 		if (pdata->mfc_freq_control)
-			pm_qos_remove_request(&core->qos_req_mfc);
-		pm_qos_remove_request(&core->qos_req_int);
-		pm_qos_remove_request(&core->qos_req_mif);
+			exynos_pm_qos_remove_request(&core->qos_req_mfc);
+		exynos_pm_qos_remove_request(&core->qos_req_int);
+		exynos_pm_qos_remove_request(&core->qos_req_mif);
 		mfc_core_debug(3, "[QoS][BOOST] DVFS off\n");
 	}
 
@@ -104,7 +109,7 @@ void mfc_core_perf_boost_disable(struct mfc_core *core)
 
 	if (core->dev->debugfs.perf_boost_mode & MFC_PERF_BOOST_CPU) {
 		for (i = 0; i < pdata->qos_boost_table->num_cluster; i++) {
-			pm_qos_remove_request(&core->qos_req_cluster[i]);
+			exynos_pm_qos_remove_request(&core->qos_req_cluster[i]);
 			mfc_core_debug(3, "[QoS][BOOST] CPU cluster[%d] off\n", i);
 		}
 	}
@@ -130,13 +135,14 @@ static void __mfc_qos_operate(struct mfc_core *core, int opr_type, int table_typ
 	case MFC_QOS_ADD:
 		core->last_mfc_freq = freq_mfc;
 		if (pdata->mfc_freq_control)
-			pm_qos_add_request(&core->qos_req_mfc,
-					PM_QOS_MFC_THROUGHPUT,
+			exynos_pm_qos_add_request(&core->qos_req_mfc,
+					PM_QOS_MFC_THROUGHPUT +
+					(core->id * MFC_THROUGHPUT_OFFSET),
 					freq_mfc);
-		pm_qos_add_request(&core->qos_req_int,
+		exynos_pm_qos_add_request(&core->qos_req_int,
 				PM_QOS_DEVICE_THROUGHPUT,
 				qos_table[idx].freq_int);
-		pm_qos_add_request(&core->qos_req_mif,
+		exynos_pm_qos_add_request(&core->qos_req_mif,
 				PM_QOS_BUS_THROUGHPUT,
 				qos_table[idx].freq_mif);
 
@@ -174,9 +180,9 @@ static void __mfc_qos_operate(struct mfc_core *core, int opr_type, int table_typ
 	case MFC_QOS_UPDATE:
 		core->last_mfc_freq = freq_mfc;
 		if (pdata->mfc_freq_control)
-			pm_qos_update_request(&core->qos_req_mfc, freq_mfc);
-		pm_qos_update_request(&core->qos_req_int, qos_table[idx].freq_int);
-		pm_qos_update_request(&core->qos_req_mif, qos_table[idx].freq_mif);
+			exynos_pm_qos_update_request(&core->qos_req_mfc, freq_mfc);
+		exynos_pm_qos_update_request(&core->qos_req_int, qos_table[idx].freq_int);
+		exynos_pm_qos_update_request(&core->qos_req_mif, qos_table[idx].freq_mif);
 
 #ifdef CONFIG_MFC_USE_BTS
 		if (pdata->mo_control) {
@@ -219,9 +225,9 @@ static void __mfc_qos_operate(struct mfc_core *core, int opr_type, int table_typ
 		}
 
 		if (pdata->mfc_freq_control)
-			pm_qos_remove_request(&core->qos_req_mfc);
-		pm_qos_remove_request(&core->qos_req_int);
-		pm_qos_remove_request(&core->qos_req_mif);
+			exynos_pm_qos_remove_request(&core->qos_req_mfc);
+		exynos_pm_qos_remove_request(&core->qos_req_int);
+		exynos_pm_qos_remove_request(&core->qos_req_mif);
 
 #ifdef CONFIG_MFC_USE_BTS
 		if (pdata->mo_control) {
@@ -434,7 +440,7 @@ static inline unsigned long __mfc_qos_get_weighted_mb(struct mfc_ctx *ctx,
 
 	if (enc) {
 		p = &enc->params;
-		if ((IS_H264_ENC(ctx) || IS_HEVC_ENC(ctx)) && p->num_b_frame) {
+		if (mfc_core_get_enc_bframe(ctx)) {
 			weight = (weight * 100) / qos_weight->weight_bframe;
 			mfc_debug(3, "[QoS] B frame encoding, weight: %d\n", weight / 10);
 		} else if ((IS_H264_ENC(ctx) || IS_HEVC_ENC(ctx) || IS_VP8_ENC(ctx) ||
@@ -450,6 +456,10 @@ static inline unsigned long __mfc_qos_get_weighted_mb(struct mfc_ctx *ctx,
 		if (dec->num_of_tile_over_4) {
 			weight = (weight * 100) / qos_weight->weight_num_of_tile;
 			mfc_debug(3, "[QoS] num of tile >= 4, weight: %d\n", weight / 10);
+		}
+		if (dec->is_mbaff) {
+			weight = (weight * 100) / qos_weight->weight_mbaff;
+			mfc_debug(3, "[QoS] MBAFF, weight: %d\n", weight / 10);
 		}
 	}
 
@@ -678,7 +688,7 @@ void mfc_core_qos_on(struct mfc_core *core, struct mfc_ctx *ctx)
 		return;
 	}
 
-	if (core->core_ctx[ctx->num]->state == MFCINST_FREE) {
+	if (core->core_ctx[ctx->num] && (core->core_ctx[ctx->num]->state == MFCINST_FREE)) {
 		mfc_ctx_info("[QoS] instance not started yet\n");
 		return;
 	}
@@ -802,7 +812,7 @@ void mfc_core_qos_off(struct mfc_core *core, struct mfc_ctx *ctx)
 	/* get the hw macroblock */
 	core->total_mb = 0;
 	list_for_each_entry(qos_core_ctx, &core->qos_queue, qos_list) {
-		if (qos_core_ctx == core->core_ctx[ctx->num]) {
+		if ((qos_core_ctx == core->core_ctx[ctx->num]) && !ON_RES_CHANGE(qos_core_ctx)) {
 			found = 1;
 			continue;
 		}

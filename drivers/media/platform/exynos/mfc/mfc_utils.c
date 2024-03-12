@@ -10,7 +10,7 @@
  * (at your option) any later version.
  */
 
-#include <linux/smc.h>
+#include <soc/samsung/exynos-smc.h>
 
 #include "mfc_utils.h"
 #include "mfc_sync.h"

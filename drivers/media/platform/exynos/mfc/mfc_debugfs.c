@@ -106,26 +106,22 @@ static int __mfc_info_show(struct seq_file *s, void *unused)
 			else
 				codec_name = ctx->dst_fmt->name;
 
-#if IS_ENABLED(CONFIG_EXYNOS_THERMAL_V2)
-			seq_printf(s, "  [CTX:%d] %s %s, %s, %s, size: %dx%d@%ldfps(tmu: %dfps, op: %ldfps), crop: %d %d %d %d\n",
-#else
-			seq_printf(s, "  [CTX:%d] %s %s, %s, %s, size: %dx%d@%ldfps(op: %ldfps), crop: %d %d %d %d\n",
-#endif
+			seq_printf(s, "  [CTX:%d] %s %s, %s, %s, size: %dx%d@%ldfps(src_ts: %ldfps, tmu: %dfps, op: %ldfps), crop: %d %d %d %d\n",
 				ctx->num,
 				ctx->type == MFCINST_DECODER ? "DEC" : "ENC",
 				ctx->is_drm ? "Secure" : "Normal",
 				ctx->src_fmt->name, ctx->dst_fmt->name,
 				ctx->img_width, ctx->img_height,
+				ctx->framerate / 1000,
 				ctx->last_framerate / 1000,
-#if IS_ENABLED(CONFIG_EXYNOS_THERMAL_V2)
 				ctx->dev->tmu_fps,
-#endif
 				ctx->operating_framerate,
 				ctx->crop_width, ctx->crop_height,
 				ctx->crop_left, ctx->crop_top);
-			seq_printf(s, "        main core: %d, op_mode: %d(stream: %d), queue(src: %d, dst: %d, src_nal: %d, dst_nal: %d, ref: %d)\n",
-				ctx->op_core_num[MFC_CORE_MAIN],
-				ctx->op_mode, ctx->stream_op_mode,
+			seq_printf(s, "        master core: %d, op_mode: %d(stream: %d), idle_mode: %d, prio %d, rt %d, queue(src: %d, dst: %d, src_nal: %d, dst_nal: %d, ref: %d)\n",
+				ctx->op_core_num[MFC_CORE_MASTER],
+				ctx->op_mode, ctx->stream_op_mode, ctx->idle_mode,
+				ctx->prio, ctx->rt,
 				mfc_get_queue_count(&ctx->buf_queue_lock, &ctx->src_buf_ready_queue),
 				mfc_get_queue_count(&ctx->buf_queue_lock, &ctx->dst_buf_queue),
 				mfc_get_queue_count(&ctx->buf_queue_lock, &ctx->src_buf_nal_queue),
@@ -190,7 +186,7 @@ static int __mfc_reg_info_show(struct seq_file *s, void *unused)
 
 	seq_puts(s, ">> MFC REG test(encoder)\n");
 
-	seq_printf(s, "-----Register test on/off: %s\n", dev->debugfs.reg_test ? "on" : "off");
+	seq_printf(s, "-----Register test on/off: %s\n", reg_test ? "on" : "off");
 	seq_printf(s, "-----Register number: %d\n", dev->reg_cnt);
 
 	if (dev->reg_val) {

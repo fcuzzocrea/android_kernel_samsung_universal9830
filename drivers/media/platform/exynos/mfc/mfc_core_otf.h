@@ -13,8 +13,6 @@
 #ifndef __MFC_CORE_OTF_H
 #define __MFC_CORE_OTF_H __FILE__
 
-#if IS_ENABLED(CONFIG_MFC_USES_OTF)
-
 #if IS_ENABLED(CONFIG_VIDEO_EXYNOS_TSMUX)
 #include <media/exynos_tsmux.h>
 #endif
@@ -70,7 +68,5 @@ int mfc_core_otf_handle_stream(struct mfc_core *core, struct mfc_ctx *ctx);
 void mfc_core_otf_handle_error(struct mfc_core *core, struct mfc_ctx *ctx,
 	unsigned int reason, unsigned int err);
 void mfc_core_otf_path_test(struct mfc_ctx *ctx);
-
-#endif
 
 #endif /* __MFC_CORE_OTF_H  */

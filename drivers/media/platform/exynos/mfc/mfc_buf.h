@@ -30,10 +30,8 @@ void mfc_release_scratch_buffer(struct mfc_core_ctx *core_ctx);
 int mfc_alloc_enc_roi_buffer(struct mfc_core_ctx *core_ctx);
 void mfc_release_enc_roi_buffer(struct mfc_core_ctx *core_ctx);
 
-#if IS_ENABLED(CONFIG_MFC_USES_OTF)
 int mfc_otf_alloc_stream_buf(struct mfc_ctx *ctx);
 void mfc_otf_release_stream_buf(struct mfc_ctx *ctx);
-#endif
 
 int mfc_alloc_firmware(struct mfc_core *core);
 int mfc_load_firmware(struct mfc_core *core);

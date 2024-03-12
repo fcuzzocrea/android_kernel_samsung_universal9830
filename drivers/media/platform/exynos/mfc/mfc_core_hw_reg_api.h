@@ -193,10 +193,8 @@ void mfc_core_set_risc_base_addr(struct mfc_core *core,
 				enum mfc_buf_usage_type buf_type);
 void mfc_core_cmd_host2risc(struct mfc_core *core, int cmd);
 int mfc_core_check_risc2host(struct mfc_core *core);
-#if IS_ENABLED(CONFIG_MFC_USES_OTF)
 void mfc_core_set_gdc_votf(struct mfc_core *core, struct mfc_ctx *ctx);
 void mfc_core_set_dpu_votf(struct mfc_core *core, struct mfc_ctx *ctx);
 void mfc_core_clear_votf(struct mfc_core *core);
-#endif
 
 #endif /* __MFC_CORE_HW_REG_API_H */

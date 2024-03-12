@@ -17,7 +17,7 @@
 #include <linux/of_platform.h>
 #include <linux/proc_fs.h>
 #include <linux/of.h>
-#include <linux/smc.h>
+#include <soc/samsung/exynos-smc.h>
 #include <linux/debugfs.h>
 #include <linux/seq_file.h>
 #include <linux/poll.h>
@@ -94,7 +94,7 @@ void mfc_butler_worker(struct work_struct *work)
 			return;
 		}
 
-		if (!IS_TWO_MODE2(ctx))
+		if (!IS_MULTI_MODE(ctx))
 			return;
 
 		mfc_rm_request_work(dev, MFC_WORK_TRY, ctx);
@@ -144,7 +144,7 @@ static int __mfc_init_dec_ctx(struct mfc_ctx *ctx)
 	}
 	ctx->dec_priv = dec;
 
-	ctx->subcore_inst_no = MFC_NO_INSTANCE_SET;
+	ctx->slave_inst_no = MFC_NO_INSTANCE_SET;
 	ctx->curr_src_index = -1;
 
 	mfc_create_queue(&ctx->src_buf_ready_queue);
@@ -173,7 +173,6 @@ static int __mfc_init_dec_ctx(struct mfc_ctx *ctx)
 	ctx->qos_ratio = 100;
 	INIT_LIST_HEAD(&ctx->bitrate_list);
 	INIT_LIST_HEAD(&ctx->src_ts.ts_list);
-	INIT_LIST_HEAD(&ctx->dst_ts.ts_list);
 
 	dec->display_delay = -1;
 	dec->is_interlaced = 0;
@@ -378,7 +377,7 @@ static int mfc_open(struct file *file)
 				dev->ctx[i]->crop_width, dev->ctx[i]->crop_height,
 				dev->ctx[i]->framerate / 1000,
 				dev->ctx[i]->weighted_mb,
-				dev->ctx[i]->op_core_num[MFC_CORE_MAIN],
+				dev->ctx[i]->op_core_num[MFC_CORE_MASTER],
 				dev->ctx[i]->op_mode);
 	}
 	if (total_mb >= max_hw_mb) {
@@ -395,7 +394,7 @@ static int mfc_open(struct file *file)
 					dev->ctx[i]->crop_width, dev->ctx[i]->crop_height,
 					dev->ctx[i]->framerate / 1000,
 					dev->ctx[i]->weighted_mb,
-					dev->ctx[i]->op_core_num[MFC_CORE_MAIN],
+					dev->ctx[i]->op_core_num[MFC_CORE_MASTER],
 					dev->ctx[i]->op_mode);
 		}
 	}
@@ -467,18 +466,24 @@ static int mfc_open(struct file *file)
 	spin_lock_init(&ctx->meminfo_queue_lock);
 	spin_lock_init(&ctx->corelock.lock);
 	spin_lock_init(&ctx->src_ts.ts_lock);
-	spin_lock_init(&ctx->dst_ts.ts_lock);
+	spin_lock_init(&ctx->dst_q_ts.ts_lock);
+	spin_lock_init(&ctx->src_q_ts.ts_lock);
 	mutex_init(&ctx->intlock.core_mutex);
 	mutex_init(&ctx->op_mode_mutex);
 	init_waitqueue_head(&ctx->corelock.wq);
 	init_waitqueue_head(&ctx->corelock.migrate_wq);
+	INIT_LIST_HEAD(&ctx->dst_q_ts.ts_list);
+	INIT_LIST_HEAD(&ctx->src_q_ts.ts_list);
 
 	mfc_ctx_change_idle_mode(ctx, MFC_IDLE_MODE_NONE);
 
-	if (mfc_is_decoder_node(node))
+	if (mfc_is_decoder_node(node)) {
 		ret = __mfc_init_dec_ctx(ctx);
-	else
+		dev->num_dec_inst++;
+	} else {
 		ret = __mfc_init_enc_ctx(ctx);
+		dev->num_enc_inst++;
+	}
 	if (ret)
 		goto err_ctx_init;
 
@@ -509,7 +514,8 @@ static int mfc_open(struct file *file)
 			dev->num_drm_inst++;
 			ctx->is_drm = 1;
 
-			mfc_ctx_info("DRM instance is opened [%d:%d]\n",
+			mfc_ctx_info("DRM %s instance is opened [%d:%d]\n",
+					ctx->type == MFCINST_DECODER ? "Decoder" : "Encoder",
 					dev->num_drm_inst, dev->num_inst);
 		} else {
 			mfc_ctx_err("Too many instance are opened for DRM\n");
@@ -519,7 +525,8 @@ static int mfc_open(struct file *file)
 			goto err_drm_start;
 		}
 	} else {
-		mfc_ctx_info("NORMAL instance is opened [%d:%d]\n",
+		mfc_ctx_info("NORMAL %s instance is opened [%d:%d]\n",
+				ctx->type == MFCINST_DECODER ? "Decoder" : "Encoder",
 				dev->num_drm_inst, dev->num_inst);
 	}
 #endif
@@ -535,14 +542,12 @@ static int mfc_open(struct file *file)
 		goto err_drm_start;
 	}
 
-#if IS_ENABLED(CONFIG_MFC_USES_OTF)
 #if IS_ENABLED(CONFIG_VIDEO_EXYNOS_REPEATER)
 	if (mfc_is_encoder_otf_node(node)) {
 		ret = mfc_core_otf_create(ctx);
 		if (ret)
 			mfc_ctx_err("[OTF] otf_create failed\n");
 	}
-#endif
 #endif
 
 	trace_mfc_node_open(ctx->num, dev->num_inst, ctx->type, ctx->is_drm);
@@ -564,6 +569,10 @@ err_ctx_ctrls:
 	vfree(dev->regression_val);
 
 err_ctx_init:
+	if (mfc_is_decoder_node(node))
+		dev->num_dec_inst--;
+	else
+		dev->num_enc_inst--;
 	dev->ctx[ctx->num] = 0;
 
 err_ctx_num:
@@ -598,7 +607,9 @@ static int mfc_release(struct file *file)
 	mutex_lock(&dev->mfc_mutex);
 	mutex_lock(&dev->mfc_migrate_mutex);
 
-	mfc_ctx_info("MFC driver release is called [%d:%d], is_drm(%d)\n",
+	mfc_ctx_info("%s %s instance release is called [%d:%d], is_drm(%d)\n",
+			ctx->is_drm ? "DRM" : "NORMAL",
+			ctx->type == MFCINST_DECODER ? "Decoder" : "Encoder",
 			dev->num_drm_inst, dev->num_inst, ctx->is_drm);
 
 	MFC_TRACE_CTX_LT("[INFO] release is called (ctx:%d, total:%d)\n", ctx->num, dev->num_inst);
@@ -642,18 +653,19 @@ static int mfc_release(struct file *file)
 		if (dev->regression_val)
 			vfree(dev->regression_val);
 
-	if (ctx->type == MFCINST_DECODER)
+	if (ctx->type == MFCINST_DECODER) {
 		__mfc_deinit_dec_ctx(ctx);
-	else if (ctx->type == MFCINST_ENCODER)
+		dev->num_dec_inst--;
+	} else if (ctx->type == MFCINST_ENCODER) {
 		__mfc_deinit_enc_ctx(ctx);
+		dev->num_enc_inst--;
+	}
 
-#if IS_ENABLED(CONFIG_MFC_USES_OTF)
 #if IS_ENABLED(CONFIG_VIDEO_EXYNOS_REPEATER)
 	if (ctx->otf_handle) {
 		mfc_core_otf_deinit(ctx);
 		mfc_core_otf_destroy(ctx);
 	}
-#endif
 #endif
 
 	trace_mfc_node_close(ctx->num, dev->num_inst, ctx->type, ctx->is_drm);
@@ -802,6 +814,12 @@ static int __mfc_parse_dt(struct device_node *np, struct mfc_dev *mfc)
 			&pdata->drm_switch_predict.support, 2);
 	of_property_read_u32_array(np, "sbwc_enc_src_ctrl",
 			&pdata->sbwc_enc_src_ctrl.support, 2);
+	of_property_read_u32_array(np, "enc_idr_flag",
+			&pdata->enc_idr_flag.support, 2);
+	of_property_read_u32_array(np, "min_quality_mode",
+			&pdata->min_quality_mode.support, 2);
+	of_property_read_u32_array(np, "enc_ts_delta",
+			&pdata->enc_ts_delta.support, 2);
 
 	/* Determine whether to enable AV1 decoder */
 	of_property_read_u32(np, "support_av1_dec", &pdata->support_av1_dec);
@@ -937,6 +955,8 @@ static int __mfc_parse_dt(struct device_node *np, struct mfc_dev *mfc)
 			&pdata->qos_weight.weight_num_of_tile);
 	of_property_read_u32(np, "qos_weight_super64_bframe",
 			&pdata->qos_weight.weight_super64_bframe);
+	of_property_read_u32(np, "qos_weight_mbaff",
+			&pdata->qos_weight.weight_mbaff);
 
 	/* Bitrate control for QoS */
 	of_property_read_u32(np, "num_mfc_freq", &pdata->num_mfc_freq);
@@ -951,7 +971,13 @@ static int __mfc_parse_dt(struct device_node *np, struct mfc_dev *mfc)
 	of_property_read_u32(np, "core_balance", &pdata->core_balance);
 
 	/* MFC IOVA threshold */
+	of_property_read_u32(np, "iova_threshold", &pdata->iova_threshold);
+
+	/* MFC idle clock control */
 	of_property_read_u32(np, "idle_clk_ctrl", &pdata->idle_clk_ctrl);
+
+	/* Encoder timing info disable */
+	of_property_read_u32(np, "enc_timing_dis", &pdata->enc_timing_dis);
 
 	return 0;
 }
@@ -982,6 +1008,7 @@ static struct video_device *__mfc_video_device_register(struct mfc_dev *dev,
 	vfd->lock = &dev->mfc_mutex;
 	vfd->v4l2_dev = &dev->v4l2_dev;
 	vfd->vfl_dir = VFL_DIR_M2M;
+	set_bit(V4L2_FL_QUIRK_INVERTED_CROP, &vfd->flags);
 	vfd->device_caps = V4L2_CAP_VIDEO_CAPTURE
 			| V4L2_CAP_VIDEO_OUTPUT
 			| V4L2_CAP_VIDEO_CAPTURE_MPLANE
@@ -1237,7 +1264,6 @@ static void mfc_shutdown(struct platform_device *pdev)
 			mfc_core_risc_off(core);
 			core->shutdown = 1;
 			mfc_clear_all_bits(&core->work_bits);
-			iovmm_deactivate(core->device);
 			mfc_core_err("core forcibly shutdown\n");
 		}
 	}
@@ -1261,7 +1287,7 @@ static int mfc_suspend(struct device *device)
 	 * Multi core mode instance can send sleep command
 	 * when there are no H/W operation both two core.
 	 */
-	for (i = 0; i < dev->num_core; i++) {
+	for (i = 0; i < MFC_NUM_CORE; i++) {
 		core[i] = dev->core[i];
 		if (!core[i]) {
 			dev_err(device, "no mfc core%d device to run\n", i);
@@ -1294,7 +1320,7 @@ static int mfc_suspend(struct device *device)
 		}
 	}
 
-	for (i = 0; i < dev->num_core; i++) {
+	for (i = 0; i < MFC_NUM_CORE; i++) {
 		if (core[i]) {
 			ret = mfc_core_run_sleep(core[i]);
 			if (ret) {
@@ -1328,7 +1354,7 @@ static int mfc_resume(struct device *device)
 		return -EINVAL;
 	}
 
-	for (i = 0; i < dev->num_core; i++) {
+	for (i = 0; i < MFC_NUM_CORE; i++) {
 		core = dev->core[i];
 		if (!core) {
 			dev_err(device, "no mfc core%d device to run\n", i);

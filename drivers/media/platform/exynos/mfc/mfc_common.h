@@ -13,11 +13,9 @@
 #ifndef __MFC_COMMON_H
 #define __MFC_COMMON_H __FILE__
 
-#include <linux/exynos_iovmm.h>
 #include <linux/io.h>
 #include <linux/slab.h>
 #include <linux/sched/clock.h>
-#include <linux/ion_exynos.h>
 #include <media/videobuf2-dma-sg.h>
 #include <asm/cacheflush.h>
 #include <soc/samsung/debug-snapshot.h>
@@ -28,7 +26,7 @@
 #include "mfc_debug.h"
 #include "mfc_media.h"
 
-#define MFC_DRIVER_INFO		210126
+#define MFC_DRIVER_INFO		200429
 
 #define MFC_MAX_REF_BUFS	2
 #define MFC_FRAME_PLANES	2
@@ -48,7 +46,10 @@
 #define MFC_DEC_DEFAULT_CORE	0
 #define MFC_ENC_DEFAULT_CORE	0
 #define MFC_SURPLUS_CORE	1
+#define MFC_MAX_CORE_BALANCE	99
 
+/* MFC base address */
+#define MFC_BASE_ADDR		0x10000000
 /* Interrupt timeout */
 #define MFC_INT_TIMEOUT		4000
 /* Interrupt short timeout */
@@ -191,6 +192,8 @@
 #define IS_NO_ERROR(err)	((err) == 0 ||		\
 				(mfc_get_warn(err)	\
 				 == MFC_REG_ERR_SYNC_POINT_NOT_RECEIVED))
+#define CODEC_HAS_IDR(ctx)	(IS_H264_DEC(ctx) || IS_H264_MVC_DEC(ctx) || IS_HEVC_DEC(ctx) ||  \
+				IS_H264_ENC(ctx) || IS_HEVC_ENC(ctx))
 
 #define IS_BUFFER_BATCH_MODE(ctx)	((ctx)->batch_mode == 1)
 #define IS_NO_HEADER_GENERATE(ctx, p)			\
@@ -270,6 +273,7 @@
 #define DEC_SET_FRAME_ERR_TYPE		(1 << 7)
 #define DEC_SET_OPERATING_FPS		(1 << 8)
 #define DEC_SET_BUF_FLAG_CTRL		(1 << 16)
+#define DEC_SET_PRIORITY		(1 << 23)
 
 /* Extra information for Encoder */
 #define	ENC_SET_RGB_INPUT		(1 << 0)
@@ -294,11 +298,12 @@
 #define ENC_SET_AVERAGE_QP		(1 << 19)
 #define ENC_SET_MV_SEARCH_MODE		(1 << 20)
 #define ENC_SET_GOP_CTRL		(1 << 21)
+#define ENC_SET_PRIORITY		(1 << 23)
 
 #define MFC_FEATURE_SUPPORT(dev, f)	((f).support && ((dev)->fw_date >= (f).version))
 
 /* Low memory check */
-#define IS_LOW_MEM			(totalram_pages <= ((SZ_1G + SZ_512M) >> PAGE_SHIFT))
-#define SZ_600M				(600 * 1024 * 1024)
+#define IS_LOW_MEM			(totalram_pages() <= ((SZ_1G + SZ_512M) >> PAGE_SHIFT))
+#define SZ_600M				(6 * 1024 * 1024)
 
 #endif /* __MFC_COMMON_H */

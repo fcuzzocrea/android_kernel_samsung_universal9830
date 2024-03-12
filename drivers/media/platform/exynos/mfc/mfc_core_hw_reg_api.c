@@ -128,7 +128,6 @@ int mfc_core_check_risc2host(struct mfc_core *core)
 	return 0;
 }
 
-#if IS_ENABLED(CONFIG_MFC_USES_OTF)
 void mfc_core_set_gdc_votf(struct mfc_core *core, struct mfc_ctx *ctx)
 {
 	unsigned int mfc_votf_base = (core->core_pdata->mfc_votf_base >> 16) & 0xFFFF;
@@ -193,5 +192,3 @@ void mfc_core_clear_votf(struct mfc_core *core)
 	/* vOTF disable, Do not clear 0x0010 */
 	VOTF_WRITEL(0x0, 0x000C);
 }
-
-#endif

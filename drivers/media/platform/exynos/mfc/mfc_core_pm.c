@@ -12,7 +12,7 @@
 
 #include <linux/pm_runtime.h>
 #include <linux/clk.h>
-#include <linux/smc.h>
+#include <soc/samsung/exynos-smc.h>
 
 #include "mfc_core_qos.h"
 #include "mfc_core_pm.h"
@@ -171,10 +171,8 @@ void mfc_core_pm_clock_off(struct mfc_core *core)
 
 int mfc_core_pm_power_on(struct mfc_core *core)
 {
-#ifdef CONFIG_MFC_USE_BUS_DEVFREQ
 	struct mfc_dev *dev = core->dev;
 	struct mfc_platdata *pdata = dev->pdata;
-#endif
 	int ret;
 
 	MFC_TRACE_CORE("++ Power on\n");
@@ -188,8 +186,9 @@ int mfc_core_pm_power_on(struct mfc_core *core)
 #ifdef CONFIG_MFC_USE_BUS_DEVFREQ
 	if (pdata->idle_clk_ctrl) {
 		mfc_core_debug(2, "request mfc idle clk OFF\n");
-		pm_qos_add_request(&core->qos_req_mfc_noidle,
-				PM_QOS_MFC_THROUGHPUT,
+		exynos_pm_qos_add_request(&core->qos_req_mfc_noidle,
+				PM_QOS_MFC_THROUGHPUT +
+				(core->id * MFC_THROUGHPUT_OFFSET),
 				pdata->mfc_freqs[0]);
 	}
 #endif
@@ -218,10 +217,8 @@ err_power_on:
 
 int mfc_core_pm_power_off(struct mfc_core *core)
 {
-#ifdef CONFIG_MFC_USE_BUS_DEVFREQ
 	struct mfc_dev *dev = core->dev;
 	struct mfc_platdata *pdata = dev->pdata;
-#endif
 	int ret;
 
 	MFC_TRACE_CORE("++ Power off\n");
@@ -233,7 +230,7 @@ int mfc_core_pm_power_off(struct mfc_core *core)
 
 #ifdef CONFIG_MFC_USE_BUS_DEVFREQ
 	if (pdata->idle_clk_ctrl) {
-		pm_qos_remove_request(&core->qos_req_mfc_noidle);
+		exynos_pm_qos_remove_request(&core->qos_req_mfc_noidle);
 		mfc_core_debug(2, "request mfc idle clk ON\n");
 	}
 #endif

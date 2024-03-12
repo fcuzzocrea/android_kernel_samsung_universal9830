@@ -10,7 +10,7 @@
  * (at your option) any later version.
  */
 
-#include <linux/smc.h>
+#include <soc/samsung/exynos-smc.h>
 #if IS_ENABLED(CONFIG_EXYNOS_IMGLOADER)
 #include <soc/samsung/imgloader.h>
 #endif
@@ -19,6 +19,7 @@
 #endif
 #include <linux/firmware.h>
 #include <trace/events/mfc.h>
+#include <linux/iommu.h>
 
 #include "mfc_core_pm.h"
 #include "mfc_buf.h"
@@ -635,7 +636,6 @@ void mfc_release_enc_roi_buffer(struct mfc_core_ctx *core_ctx)
 	mfc_debug(2, "[MEMINFO][ROI] Release the ROI buffer\n");
 }
 
-#if IS_ENABLED(CONFIG_MFC_USES_OTF)
 int mfc_otf_alloc_stream_buf(struct mfc_ctx *ctx)
 {
 	struct mfc_dev *dev = ctx->dev;
@@ -683,13 +683,13 @@ void mfc_otf_release_stream_buf(struct mfc_ctx *ctx)
 	mfc_debug(2, "[OTF][MEMINFO] Release the OTF stream buffer\n");
 	mfc_debug_leave();
 }
-#endif
 
 /* Allocate firmware */
 int mfc_alloc_firmware(struct mfc_core *core)
 {
 	struct mfc_dev *dev = core->dev;
 	struct mfc_ctx_buf_size *buf_size;
+	struct mfc_special_buf *fw_buf;
 
 	mfc_core_debug_enter();
 
@@ -703,14 +703,18 @@ int mfc_alloc_firmware(struct mfc_core *core)
 	core->fw_buf.size = dev->variant->buf_size->firmware_code;
 	trace_mfc_loadfw_start(core->fw_buf.size, core->fw_buf.size);
 
-	core->fw_buf.buftype = MFCBUF_NORMAL;
+	core->fw_buf.buftype = MFCBUF_NORMAL_FW;
 	if (mfc_mem_ion_alloc(dev, &core->fw_buf)) {
 		mfc_core_err("[F/W] Allocating normal firmware buffer failed\n");
 		return -ENOMEM;
 	}
 
-	mfc_core_debug(2, "[MEMINFO][F/W] FW normal: 0x%08llx (vaddr: 0x%p), size: %08zu\n",
-			core->fw_buf.daddr, core->fw_buf.vaddr,
+	fw_buf = &core->fw_buf;
+	if (mfc_remap_firmware(core, fw_buf))
+		goto err_reserve_iova;
+
+	mfc_core_info("[MEMINFO][F/W] MFC-%d FW normal: 0x%08llx (vaddr: 0x%p, paddr:%#llx), size: %08zu\n",
+			core->id, core->fw_buf.daddr, core->fw_buf.vaddr, core->fw_buf.paddr,
 			core->fw_buf.size);
 
 #if IS_ENABLED(CONFIG_EXYNOS_CONTENT_PATH_PROTECTION)
@@ -718,10 +722,11 @@ int mfc_alloc_firmware(struct mfc_core *core)
 	core->drm_fw_buf.size = core->fw_buf.size;
 	if (mfc_mem_ion_alloc(dev, &core->drm_fw_buf)) {
 		mfc_core_err("[F/W] Allocating DRM firmware buffer failed\n");
-		return -ENOMEM;
+		goto err_daddr;
 	}
 
-	mfc_core_debug(2, "[MEMINFO][F/W] FW DRM: 0x%08llx (vaddr: 0x%p), size: %08zu\n",
+	mfc_core_info("[MEMINFO][F/W] MFC-%d FW DRM: 0x%08llx (vaddr: 0x%p), size: %08zu\n",
+			core->id,
 			core->drm_fw_buf.daddr, core->drm_fw_buf.vaddr,
 			core->drm_fw_buf.size);
 #endif
@@ -729,6 +734,14 @@ int mfc_alloc_firmware(struct mfc_core *core)
 	mfc_core_debug_leave();
 
 	return 0;
+
+#if IS_ENABLED(CONFIG_EXYNOS_CONTENT_PATH_PROTECTION)
+err_daddr:
+#endif
+err_reserve_iova:
+	iommu_unmap(core->domain, fw_buf->daddr, fw_buf->map_size);
+	mfc_mem_ion_free(&core->fw_buf);
+	return -ENOMEM;
 }
 
 /* Load firmware to MFC */
@@ -801,12 +814,16 @@ int mfc_load_firmware(struct mfc_core *core)
 /* Release firmware memory */
 int mfc_release_firmware(struct mfc_core *core)
 {
+	struct mfc_special_buf *fw_buf;
+
 	/* Before calling this function one has to make sure
 	 * that MFC is no longer processing */
-	if (!core->fw_buf.dma_buf) {
+	fw_buf = &core->fw_buf;
+	if (!fw_buf->dma_buf) {
 		mfc_core_err("[F/W] firmware memory is already freed\n");
 		return -EINVAL;
 	}
+	iommu_unmap(core->domain, fw_buf->daddr, fw_buf->map_size);
 
 #if IS_ENABLED(CONFIG_EXYNOS_CONTENT_PATH_PROTECTION)
 	mfc_mem_ion_free(&core->drm_fw_buf);
