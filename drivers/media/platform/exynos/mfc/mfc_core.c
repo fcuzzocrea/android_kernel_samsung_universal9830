@@ -21,6 +21,7 @@
 #include <linux/seq_file.h>
 #include <linux/poll.h>
 #include <linux/vmalloc.h>
+#include <soc/samsung/exynos-debug.h>
 
 #include "mfc_common.h"
 
@@ -388,25 +389,6 @@ static const struct mfc_core_ops mfc_core_ops = {
 	.request_work = mfc_core_request_work,
 };
 
-#if IS_ENABLED(CONFIG_EXYNOS_IMGLOADER)
-extern struct imgloader_ops mfc_imgloader_ops;
-
-static int __mfc_core_imgloader_desc_init(struct platform_device *pdev, struct mfc_core *core)
-{
-	struct imgloader_desc *desc = &core->mfc_imgloader_desc;
-
-	desc->dev = &pdev->dev;
-	desc->owner = THIS_MODULE;
-	desc->ops = &mfc_imgloader_ops;
-	desc->fw_name = MFC_FW_NAME;
-	desc->name = core->name;
-	desc->s2mpu_support = false;
-	desc->fw_id = 0;
-
-	return imgloader_desc_init(&core->mfc_imgloader_desc);
-}
-#endif
-
 #if IS_ENABLED(CONFIG_EXYNOS_ITMON)
 static int __mfc_itmon_notifier(struct notifier_block *nb, unsigned long action,
 				void *nb_data)
@@ -470,7 +452,7 @@ static int __mfc_itmon_notifier(struct notifier_block *nb, unsigned long action,
 	core->itmon_notified = 1;
 	ret = NOTIFY_BAD;
 
-	dbg_snapshot_expire_watchdog();
+	s3c2410wdt_set_emergency_reset(0, 0);
 	BUG();
 
 	return ret;
@@ -551,12 +533,6 @@ static int mfc_core_probe(struct platform_device *pdev)
 	ret = __mfc_core_register_resource(pdev, core);
 	if (ret)
 		goto err_res_mem;
-
-#if IS_ENABLED(CONFIG_EXYNOS_IMGLOADER)
-	ret = __mfc_core_imgloader_desc_init(pdev, core);
-	if (ret)
-		goto err_res_mem;
-#endif
 
 	init_waitqueue_head(&core->cmd_wq);
 	mfc_core_init_listable_wq_dev(core);
@@ -717,9 +693,6 @@ err_wq_idle:
 	destroy_workqueue(core->meerkat_wq);
 err_wq_meerkat:
 	mfc_core_deinit_memlog(core);
-#if IS_ENABLED(CONFIG_EXYNOS_IMGLOADER)
-	imgloader_desc_release(&core->mfc_imgloader_desc);
-#endif
 	free_irq(core->irq, core);
 #if IS_ENABLED(CONFIG_MFC_USES_OTF)
 	if (core->has_mfc_votf)
@@ -766,9 +739,7 @@ static int mfc_core_remove(struct platform_device *pdev)
 	release_mem_region(core->mfc_mem->start, resource_size(core->mfc_mem));
 	mfc_core_pm_final(core);
 	mfc_core_deinit_memlog(core);
-#if IS_ENABLED(CONFIG_EXYNOS_IMGLOADER)
-	imgloader_desc_release(&core->mfc_imgloader_desc);
-#endif
+
 	kfree(core);
 
 	dev_dbg(&pdev->dev, "%s--\n", __func__);

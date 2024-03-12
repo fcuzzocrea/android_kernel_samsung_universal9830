@@ -40,9 +40,6 @@
 #if IS_ENABLED(CONFIG_EXYNOS_MEMORY_LOGGER)
 #include <soc/samsung/memlogger.h>
 #endif
-#if IS_ENABLED(CONFIG_EXYNOS_IMGLOADER)
-#include <soc/samsung/imgloader.h>
-#endif
 #if IS_ENABLED(CONFIG_EXYNOS_SYSTEM_EVENT)
 #include <soc/samsung/sysevent.h>
 #include <soc/samsung/sysevent_notif.h>
@@ -1292,10 +1289,7 @@ struct mfc_core {
 	bool continue_clock_on;
 	bool sleep;
 	bool shutdown;
-#if IS_ENABLED(CONFIG_EXYNOS_IMGLOADER)
-	/* Exynos Image Loader */
-	struct imgloader_desc   mfc_imgloader_desc;
-#endif
+
 	/* Internal buffers */
 	struct mfc_fw		fw;
 	struct mfc_special_buf	fw_buf;

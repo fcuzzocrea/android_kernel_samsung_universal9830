@@ -76,13 +76,6 @@ static int __mfc_core_init(struct mfc_core *core, struct mfc_ctx *ctx)
 	if (dev->debugfs.dbg_enable)
 		mfc_alloc_dbg_info_buffer(core);
 
-#if !IS_ENABLED(CONFIG_EXYNOS_IMGLOADER)
-	ret = mfc_power_on_verify_fw(core, 0, core->fw_buf.paddr,
-				core->fw.fw_size, core->fw_buf.size);
-	if (ret < 0)
-		goto err_pwr_enable;
-#endif
-
 	core->curr_core_ctx = ctx->num;
 	core->preempt_core_ctx = MFC_NO_INSTANCE_SET;
 	core->curr_core_ctx_is_drm = ctx->is_drm;
@@ -105,27 +98,12 @@ static int __mfc_core_init(struct mfc_core *core, struct mfc_ctx *ctx)
 	return ret;
 
 err_hw_init:
-#if !IS_ENABLED(CONFIG_EXYNOS_IMGLOADER)
 	mfc_core_pm_power_off(core);
 
 err_pwr_enable:
-#endif
 	mfc_release_common_context(core);
 
 err_common_ctx:
-#if IS_ENABLED(CONFIG_EXYNOS_CONTENT_PATH_PROTECTION)
-	if (core->fw.drm_status) {
-		int smc_ret = 0;
-		core->fw.drm_status = 0;
-		/* Request buffer unprotection for DRM F/W */
-		smc_ret = exynos_smc(SMC_DRM_PPMP_MFCFW_UNPROT,
-					core->drm_fw_buf.daddr, 0, 0);
-		if (smc_ret != DRMDRV_OK) {
-			mfc_core_err("failed MFC DRM F/W unprot(%#x)\n", smc_ret);
-			call_dop(core, dump_and_stop_debug_mode, core);
-		}
-	}
-#endif
 
 err_fw_load:
 	del_timer(&core->meerkat_timer);
