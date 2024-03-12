@@ -12,6 +12,8 @@
 
 #include "mfc_meminfo.h"
 
+#include "mfc_rm.h"
+
 #include "mfc_queue.h"
 
 void __mfc_meminfo_add_buf(struct mfc_ctx *ctx, struct mfc_buf_queue *queue, struct vb2_buffer *vb)
@@ -103,7 +105,7 @@ int mfc_meminfo_get_dev(struct mfc_dev *dev)
 	dev->meminfo[num].size = dev->variant->buf_size->firmware_code;
 	dev->meminfo[num].total = dev->variant->buf_size->firmware_code;
 
-#ifdef CONFIG_EXYNOS_CONTENT_PATH_PROTECTION
+#if IS_ENABLED(CONFIG_EXYNOS_CONTENT_PATH_PROTECTION)
 	++num;
 	dev->meminfo[num].type = MFC_MEMINFO_FW;
 	dev->meminfo[num].name = "secure fw";
@@ -120,7 +122,7 @@ int mfc_meminfo_get_dev(struct mfc_dev *dev)
 	dev->meminfo[num].size = buf_size->dev_ctx;
 	dev->meminfo[num].total = buf_size->dev_ctx;
 
-#ifdef CONFIG_EXYNOS_CONTENT_PATH_PROTECTION
+#if IS_ENABLED(CONFIG_EXYNOS_CONTENT_PATH_PROTECTION)
 	++num;
 	dev->meminfo[num].type = MFC_MEMINFO_INTERNAL;
 	dev->meminfo[num].name = "secure common ctx";
@@ -171,6 +173,7 @@ int __mfc_meminfo_get_dpb(struct mfc_ctx *ctx, int num)
 	return num;
 }
 
+#if 0
 int mfc_meminfo_get_ctx(struct mfc_ctx *ctx)
 {
 	struct mfc_mem *mfc_mem = NULL;
@@ -214,7 +217,7 @@ int mfc_meminfo_get_ctx(struct mfc_ctx *ctx)
 		ctx->meminfo[num].total =
 			mfc_mem->size * ctx->meminfo_inbuf_q.count;
 	} else {
-		mfc_err_ctx("list_entry is NULL\n");
+		mfc_ctx_err("list_entry is NULL\n");
 	}
 
 	/* get output buffer info */
@@ -254,3 +257,4 @@ int mfc_meminfo_get_ctx(struct mfc_ctx *ctx)
 
 	return ++num;
 }
+#endif
