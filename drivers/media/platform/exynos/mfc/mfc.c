@@ -23,7 +23,7 @@
 #include <linux/poll.h>
 #if IS_ENABLED(CONFIG_EXYNOS_THERMAL_V2)
 #include <soc/samsung/tmu.h>
-#include <soc/samsung/isp_cooling.h>
+#include <linux/isp_cooling.h>
 #endif
 
 #include "mfc_common.h"
