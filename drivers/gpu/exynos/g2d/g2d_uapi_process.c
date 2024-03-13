@@ -674,7 +674,7 @@ static int g2d_get_target(struct g2d_device *g2d_dev, struct g2d_context *ctx,
 		 * avoid overwriting the buffer index and job id while MFC is
 		 * running.
 		 */
-		ret = hwfc_get_valid_buffer(&task->bufidx);
+		ret = repeater_get_valid_buffer(&task->bufidx);
 		if (ret < 0) {
 			perrfndev(g2d_dev, "Failed to get buffer for HWFC");
 			return ret;

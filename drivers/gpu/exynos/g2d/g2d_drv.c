@@ -128,7 +128,7 @@ int g2d_device_run(struct g2d_device *g2d_dev, struct g2d_task *task)
 	task->ktime_begin = ktime_get();
 
 	if (IS_HWFC(task->flags))
-		hwfc_set_valid_buffer(task->sec.job_id, task->sec.job_id);
+		repeater_set_valid_buffer(task->sec.job_id, task->sec.job_id);
 
 	return 0;
 }
@@ -389,7 +389,7 @@ static long g2d_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 					break;
 				}
 
-				ret = hwfc_request_buffer(ctx->hwfc_info, 0);
+				ret = repeater_request_buffer(ctx->hwfc_info, 0);
 				if (ret || (ctx->hwfc_info->buffer_count >
 				    MAX_SHARED_BUF_NUM)) {
 					kfree(ctx->hwfc_info);
@@ -416,7 +416,7 @@ static long g2d_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 		if (ret < 0) {
 			/* release hwfc buffer */
 			if (IS_HWFC(task->flags) && (task->bufidx >= 0))
-				hwfc_set_valid_buffer(task->bufidx, -1);
+				repeater_set_valid_buffer(task->bufidx, -1);
 			g2d_put_free_task(g2d_dev, task);
 			break;
 		}
