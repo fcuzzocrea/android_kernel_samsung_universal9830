@@ -169,6 +169,7 @@
 #define PROT_G3D			(12)
 #define PROT_JPEG			(13)
 #define PROT_G2D			(14)
+#define PROT_MFC1			(15)
 
 #ifndef __ASSEMBLY__
 /* secure SysMMU SFR access */

@@ -23,7 +23,6 @@
 #include <linux/timer.h>
 
 #include <media/exynos_repeater.h>
-#include <media/mfc_hwfc.h>
 
 #include "repeater.h"
 #include "repeater_buf.h"
@@ -50,12 +49,13 @@ struct repeater_context {
 	struct dma_buf *dmabufs[MAX_SHARED_BUF_NUM];
 
 	struct shared_buffer shared_bufs;
-	struct encoding_param enc_param;
+	struct repeater_encoding_param enc_param;
 	struct timer_list encoding_timer;
 	uint64_t encoding_period_us;
 	uint64_t last_encoding_time_us;
 	uint64_t time_stamp_us;
 	enum repeater_context_status ctx_status;
+	int (*repeater_encode_cb)(int, int, struct repeater_encoding_param *param);
 
 	struct delayed_work encoding_work;
 	uint64_t encoding_start_timestamp;
@@ -63,6 +63,14 @@ struct repeater_context {
 	uint64_t paused_time;
 	uint64_t pause_time;
 	uint64_t resume_time;
+
+	/* frame skipping */
+	uint64_t repeated_frame_count;
+	uint64_t max_skipped_frame;
+
+	wait_queue_head_t wait_queue_idle;
+	int idle;
+	int idle_changed;
 
 	/* To dump data */
 	wait_queue_head_t wait_queue_dump;
