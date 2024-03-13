@@ -21,6 +21,10 @@
 #include <linux/pm_qos.h>
 #include <soc/samsung/exynos-itmon.h>
 
+extern int repeater_request_buffer(struct shared_buffer_info *info, int owner);
+extern int repeater_get_valid_buffer(int *buf_idx);
+extern int repeater_set_valid_buffer(int buf_idx, int capture_idx);
+
 struct g2d_task; /* defined in g2d_task.h */
 
 enum g2d_priority {
