@@ -27,14 +27,19 @@ static spinlock_t repeater_spinlock;
 #define ENCODING_PERIOD_TIME_US			1000000
 #define MAX_WAIT_TIME_DUMP				10000000
 
+#define MIN_GUARANTEED_FRAME_COUNT_PER_SESSION      300
+#define MIN_GUARANTEED_FRAME_COUNT_PER_BUFFER       5
+#define MAX_WAIT_TIME_GET_IDLE			100000
+#define REPEATER_IDLE_TRIGGER_FRAME		3
+
 int g_repeater_debug_level;
 module_param(g_repeater_debug_level, int, 0600);
 
 /*
- * If fps is 60, MFC encoding is called when hwfc_set_valid_buffer is called
+ * If fps is 60, MFC encoding is called when repeater_set_valid_buffer is called
  */
 
-int hwfc_request_buffer(struct shared_buffer_info *info, int owner)
+int repeater_request_buffer(struct shared_buffer_info *info, int owner)
 {
 	int ret = 0;
 	struct repeater_context *ctx;
@@ -102,8 +107,9 @@ int hwfc_request_buffer(struct shared_buffer_info *info, int owner)
 
 	return ret;
 }
+EXPORT_SYMBOL(repeater_request_buffer);
 
-int hwfc_get_valid_buffer(int *buf_idx)
+int repeater_get_valid_buffer(int *buf_idx)
 {
 	int ret = 0;
 	struct repeater_context *ctx;
@@ -147,8 +153,9 @@ int hwfc_get_valid_buffer(int *buf_idx)
 
 	return ret;
 }
+EXPORT_SYMBOL(repeater_get_valid_buffer);
 
-int hwfc_set_valid_buffer(int buf_idx, int capture_idx)
+int repeater_set_valid_buffer(int buf_idx, int capture_idx)
 {
 	int ret = 0;
 	struct repeater_context *ctx;
@@ -189,17 +196,28 @@ int hwfc_set_valid_buffer(int buf_idx, int capture_idx)
 	shr_bufs = &ctx->shared_bufs;
 
 	ret = set_captured_buf_idx(shr_bufs, buf_idx, capture_idx);
+	if (ret == 0) {
+		ctx->repeated_frame_count = 0;
+	}
 
-	if (ctx->info.fps == 60) {
+	if (ctx->idle) {
+		ctx->idle = false;
+		ctx->idle_changed = true;
+		wake_up_interruptible(&ctx->wait_queue_idle);
+		print_repeater_debug(RPT_EXT_INFO,
+			"hwfc_set_valid_buffer wait_queue_idle wake up\n");
+	}
+
+	if (ctx->info.fps == 60 && ctx->repeater_encode_cb) {
 		cur_ktime = ktime_get();
 		cur_timestamp = ktime_to_us(cur_ktime);
 		if (ret == 0) {
 			ctx->enc_param.time_stamp = cur_timestamp;
 			set_encoding_start(shr_bufs, buf_idx);
-			ret = mfc_hwfc_encode(buf_idx, capture_idx, &ctx->enc_param);
-			if (ret != HWFC_ERR_NONE) {
+			ret = ctx->repeater_encode_cb(buf_idx, capture_idx, &ctx->enc_param);
+			if (ret) {
 				print_repeater_debug(RPT_ERROR,
-					"mfc_hwfc_encode failed %d\n", ret);
+					"repeater_encode_cb failed %d\n", ret);
 				ret = set_encoding_done(shr_bufs);
 			}
 		}
@@ -211,8 +229,45 @@ int hwfc_set_valid_buffer(int buf_idx, int capture_idx)
 
 	return ret;
 }
+EXPORT_SYMBOL(repeater_set_valid_buffer);
 
-int hwfc_encoding_done(int encoding_ret)
+int repeater_register_encode_cb(
+	int (*repeater_encode_cb)(int, int, struct repeater_encoding_param *param))
+{
+	int ret = 0;
+	struct repeater_context *ctx;
+	int idx = REPEATER_CUR_CONTEXTS_NUM;
+	unsigned long flags;
+
+	print_repeater_debug(RPT_EXT_INFO, "%s++\n", __func__);
+
+	spin_lock_irqsave(&repeater_spinlock, flags);
+
+	if (!g_repeater_device) {
+		print_repeater_debug(RPT_ERROR, "%s, g_repeater_device %pK\n",
+			__func__, g_repeater_device);
+		spin_unlock_irqrestore(&repeater_spinlock, flags);
+		return -EFAULT;
+	}
+
+	ctx = g_repeater_device->ctx[idx];
+	if (!ctx) {
+		print_repeater_debug(RPT_ERROR, "%s, ctx is NULL\n", __func__);
+		spin_unlock_irqrestore(&repeater_spinlock, flags);
+		return -EFAULT;
+	}
+
+	ctx->repeater_encode_cb = repeater_encode_cb;
+
+	spin_unlock_irqrestore(&repeater_spinlock, flags);
+
+	print_repeater_debug(RPT_EXT_INFO, "%s--\n", __func__);
+
+	return ret;
+}
+EXPORT_SYMBOL(repeater_register_encode_cb);
+
+int repeater_encoding_done(int encoding_ret)
 {
 	int ret = 0;
 	struct repeater_context *ctx;
@@ -247,6 +302,7 @@ int hwfc_encoding_done(int encoding_ret)
 
 	return ret;
 }
+EXPORT_SYMBOL(repeater_encoding_done);
 
 void encoding_work_handler(struct work_struct *work)
 {
@@ -260,6 +316,7 @@ void encoding_work_handler(struct work_struct *work)
 	int64_t required_delay;
 	unsigned long flags;
 	struct delayed_work *enc_work;
+	bool is_encoding_frame = false;
 
 	print_repeater_debug(RPT_INT_INFO, "%s++\n", __func__);
 
@@ -326,18 +383,48 @@ void encoding_work_handler(struct work_struct *work)
 	print_repeater_debug(RPT_EXT_INFO, "time_stamp %lld\n",
 	ctx->enc_param.time_stamp);
 
-	if (ret == 0 && buf_idx >= 0) {
+	print_repeater_debug(RPT_EXT_INFO, "video_frame_count %lld, repeated_frame_count %lld\n",
+		ctx->video_frame_count, ctx->repeated_frame_count);
+
+	if (ctx->repeated_frame_count >= ctx->max_skipped_frame)
+		ctx->repeated_frame_count = 0;
+
+	if (ctx->repeated_frame_count == 0 ||
+		ctx->repeated_frame_count < MIN_GUARANTEED_FRAME_COUNT_PER_BUFFER ||
+		ctx->video_frame_count < MIN_GUARANTEED_FRAME_COUNT_PER_SESSION) {
+		is_encoding_frame = true;
+	}
+
+	if (ctx->repeated_frame_count > REPEATER_IDLE_TRIGGER_FRAME) {
+		if (ctx->idle == false) {
+			ctx->idle = true;
+			ctx->idle_changed = true;
+			wake_up_interruptible(&ctx->wait_queue_idle);
+			print_repeater_debug(RPT_EXT_INFO,
+				"encoding_work_handler wait_queue_idle wake up\n");
+		}
+	}
+
+	print_repeater_debug(RPT_EXT_INFO, "buf_idx %d, is_encoding_frame %d\n",
+		buf_idx, is_encoding_frame);
+	if (ret == 0 && buf_idx >= 0 && ctx->repeater_encode_cb && is_encoding_frame) {
 		print_repeater_debug(RPT_EXT_INFO, "buf_idx %d\n", buf_idx);
 		ctx->buf_idx_dump = buf_idx;
 		wake_up_interruptible(&ctx->wait_queue_dump);
 		set_encoding_start(shr_bufs, buf_idx);
-		ret = mfc_hwfc_encode(buf_idx, buf_idx, &ctx->enc_param);
-		if (ret != HWFC_ERR_NONE) {
+		ret = ctx->repeater_encode_cb(buf_idx, buf_idx, &ctx->enc_param);
+		if (ret) {
 			print_repeater_debug(RPT_ERROR,
-				"mfc_hwfc_encode failed %d\n", ret);
+				"repeater_encode_cb failed %d\n", ret);
 			ret = set_encoding_done(shr_bufs);
 		}
+	} else {
+		print_repeater_debug(RPT_ERROR,
+			"skip encoding, ret %d, buf_idx %d, %s, is_encoding_frame %d\n",
+			ret, buf_idx, ctx->repeater_encode_cb == NULL ? "cb is NULL" : "cb is not NULL",
+			is_encoding_frame);
 	}
+	ctx->repeated_frame_count++;
 
 	do {
 		ctx->video_frame_count++;
@@ -626,6 +713,89 @@ int repeater_ioctl_dump(struct repeater_context *ctx)
 	return ret;
 }
 
+int repeater_ioctl_set_max_skipped_frame(
+	struct repeater_context *ctx, int max_skipped_frame)
+{
+	int ret = 0;
+	unsigned long flags;
+
+	print_repeater_debug(RPT_INT_INFO, "%s++\n", __func__);
+
+	spin_lock_irqsave(&repeater_spinlock, flags);
+
+	if (max_skipped_frame >= 0) {
+		ctx->max_skipped_frame = max_skipped_frame;
+		ret = 0;
+	} else {
+		print_repeater_debug(RPT_ERROR, "%s, max_skipped_frame is invalid %d\n",
+			__func__, max_skipped_frame);
+		ret = -EFAULT;
+	}
+
+	spin_unlock_irqrestore(&repeater_spinlock, flags);
+
+	print_repeater_debug(RPT_INT_INFO, "%s--\n", __func__);
+
+	return ret;
+}
+
+static inline bool is_idle_changed(struct repeater_context *ctx)
+{
+	bool ret = false;
+	unsigned long flags;
+
+	spin_lock_irqsave(&repeater_spinlock, flags);
+
+	if (ctx->idle_changed) {
+		ret = true;
+	} else {
+		ret = false;
+	}
+
+	spin_unlock_irqrestore(&repeater_spinlock, flags);
+
+	return ret;
+}
+
+static int repeater_ioctl_get_idle_info(
+	struct repeater_context *ctx, int *idle)
+{
+	int ret = 0;
+	unsigned long jiffies_from_usec = usecs_to_jiffies(MAX_WAIT_TIME_GET_IDLE);
+	unsigned long flags;
+	int i = 0;
+	int wait_time = 0;
+
+	print_repeater_debug(RPT_INT_INFO, "%s++\n", __func__);
+
+	for (i = 0; i < 10; i++) {
+		if (ctx->ctx_status == REPEATER_CTX_START) {
+			wait_time = wait_event_interruptible_timeout(ctx->wait_queue_idle,
+				is_idle_changed(ctx), jiffies_from_usec);
+			if (wait_time > 0) {
+				break;
+			}
+		}
+	}
+
+	print_repeater_debug(RPT_INT_INFO,
+		"wait_event_interruptible_timeout loop %d, wait_time %d\n", i, wait_time);
+
+	if (wait_time < 0)
+		ret = wait_time;
+
+	spin_lock_irqsave(&repeater_spinlock, flags);
+
+	*idle = ctx->idle;
+	ctx->idle_changed = false;
+
+	spin_unlock_irqrestore(&repeater_spinlock, flags);
+
+	print_repeater_debug(RPT_INT_INFO, "%s--\n", __func__);
+
+	return ret;
+}
+
 static int repeater_open(struct inode *inode, struct file *filp)
 {
 	int ret = 0;
@@ -672,10 +842,15 @@ static int repeater_open(struct inode *inode, struct file *filp)
 	g_repeater_device = repeater_dev;
 	spin_unlock_irqrestore(&repeater_spinlock, flags);
 
+	init_waitqueue_head(&ctx->wait_queue_idle);
+
 	init_waitqueue_head(&ctx->wait_queue_dump);
 	ctx->buf_idx_dump = -1;
 
 	pm_runtime_get_sync(repeater_dev->dev);
+
+	ctx->repeated_frame_count = 0;
+	ctx->max_skipped_frame = 0;
 
 	print_repeater_debug(RPT_INT_INFO, "%s--\n", __func__);
 
@@ -719,6 +894,8 @@ static long repeater_ioctl(struct file *filp,
 	int ret = 0;
 	struct repeater_context *ctx;
 	struct repeater_info info;
+	int max_skipped_frame = 0;
+	int idle;
 
 	print_repeater_debug(RPT_INT_INFO, "%s++\n", __func__);
 
@@ -777,6 +954,23 @@ static long repeater_ioctl(struct file *filp,
 			break;
 		}
 		ctx->buf_idx_dump = -1;
+	break;
+
+	case REPEATER_IOCTL_SET_MAX_SKIPPED_FRAME:
+		if (copy_from_user(&max_skipped_frame,
+			(int __user *)arg, sizeof(int))) {
+			ret = -EFAULT;
+			break;
+		}
+		ret = repeater_ioctl_set_max_skipped_frame(ctx, max_skipped_frame);
+	break;
+
+	case REPEATER_IOCTL_GET_IDLE_INFO:
+		ret = repeater_ioctl_get_idle_info(ctx, &idle);
+		if (copy_to_user((int __user *)arg, &idle, sizeof(int))) {
+			ret = -EFAULT;
+			break;
+		}
 	break;
 
 	default:
@@ -878,8 +1072,19 @@ static struct platform_driver repeater_driver = {
 	}
 };
 
-module_platform_driver(repeater_driver);
+static int exynos_repeater_register(void)
+{
+	platform_driver_register(&repeater_driver);
+	return 0;
+}
 
+static void exynos_repeater_unregister(void)
+{
+	platform_driver_unregister(&repeater_driver);
+}
+
+module_init(exynos_repeater_register);
+module_exit(exynos_repeater_unregister);
 MODULE_AUTHOR("Shinwon Lee <shinwon.lee@samsung.com>");
 MODULE_DESCRIPTION("EXYNOS repeater driver");
 MODULE_LICENSE("GPL");
