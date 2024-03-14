@@ -223,9 +223,6 @@ static int __mfc_core_deinit(struct mfc_core *core, struct mfc_ctx *ctx)
 
 		if (core->num_inst == 0)
 			mfc_llc_disable(core);
-		else
-			if (ctx->is_8k)
-				mfc_llc_update_size(core, false);
 	}
 
 	return 0;

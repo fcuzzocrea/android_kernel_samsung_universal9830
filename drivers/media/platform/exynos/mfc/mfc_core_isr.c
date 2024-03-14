@@ -1509,9 +1509,6 @@ static int __mfc_handle_seq_dec(struct mfc_core *core, struct mfc_ctx *ctx)
 				i, ctx->min_dpb_size[i], i, ctx->min_dpb_size_2bits[i]);
 	}
 
-	if (core->has_llc && core->llc_on_status)
-		mfc_llc_handle_resol(core, ctx);
-
 	if (IS_MULTI_CORE_DEVICE(dev) && mfc_core_get_two_core_mode()) {
 		if (dev->debugfs.feature_option & MFC_OPTION_MULTI_CORE_DISABLE) {
 			mfc_ctx_info("[2CORE] op_mode: %d stream, but multi core disable\n",
@@ -1591,9 +1588,6 @@ static int __mfc_handle_seq_enc(struct mfc_core *core, struct mfc_ctx *ctx)
 	mfc_debug(2, "[STREAM] encoded slice type: %d, header size: %d, display order: %d\n",
 			mfc_core_get_enc_slice_type(), enc->header_size,
 			mfc_core_get_enc_pic_count());
-
-	if (core->has_llc && core->llc_on_status)
-		mfc_llc_handle_resol(core, ctx);
 
 	if (IS_BPG_ENC(ctx)) {
 		dst_mb = mfc_get_buf(ctx, &ctx->dst_buf_queue,

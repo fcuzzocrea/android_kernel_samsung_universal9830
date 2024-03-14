@@ -2147,12 +2147,6 @@ struct mfc_ctx {
 	/* for DRM */
 	int is_drm;
 
-	/* for 8K */
-	int is_8k;
-
-	/* for AV1 Annex B */
-	int is_av1_annex_b;
-
 	int is_dpb_realloc;
 	enum mfc_dec_wait_state wait_state;
 	int clear_work_bit;

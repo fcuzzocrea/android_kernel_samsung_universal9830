@@ -266,13 +266,6 @@ void mfc_core_cmd_dec_seq_header(struct mfc_core *core, struct mfc_ctx *ctx)
 		(dev->debugfs.feature_option & MFC_OPTION_DECODING_ORDER))
 		reg |= (0x1 << MFC_REG_D_DEC_OPT_DECODING_ORDER_ENABLE);
 
-	/* Todo: How to check ANNEX B Format feature? */
-	/* Enabe ANNEX B Format for AV1 */
-#if 0
-	if (IS_AV1_DEC(ctx) && ctx->is_av1_annex_b)
-		reg |= (0x1 << MFC_REG_D_DEC_OPT_AV1_ANNEX_B_FORMAT_SHIFT);
-#endif
-
 	MFC_CORE_WRITEL(reg, MFC_REG_D_DEC_OPTIONS);
 
 	MFC_CORE_WRITEL(MFC_CONCEAL_COLOR, MFC_REG_D_FORCE_PIXEL_VAL);

@@ -1355,8 +1355,6 @@ static int mfc_resume(struct device *device)
 			mfc_llc_enable(core);
 
 		core_ctx = core->core_ctx[core->curr_core_ctx];
-		if (core_ctx)
-			mfc_llc_handle_resol(core, core_ctx->ctx);
 
 		ret = mfc_core_run_wakeup(core);
 		if (ret) {
