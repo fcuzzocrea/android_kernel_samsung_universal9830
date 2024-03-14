@@ -17,24 +17,36 @@
 #define HEIGHT_MB(y_size)	((y_size + 15) / 16)
 
 /*
-   Note that lcu_width and lcu_height are defined as follows :
-   lcu_width = (frame_width + lcu_size - 1)/lcu_size
-   lcu_height = (frame_height + lcu_size - 1)/lcu_size.
-   (lcu_size is 32(encoder) or 64(decoder))
-*/
+ * Note that lcu_width and lcu_height are defined as follows :
+ * lcu_width = (frame_width + lcu_size - 1)/lcu_size
+ * lcu_height = (frame_height + lcu_size - 1)/lcu_size.
+ * (lcu_size is 32(encoder) or 64(decoder))
+ *
+ * Note that ctb_width and ctb_height are defined as follows :
+ * ctb_width = (frame_width + ctb_size - 1)/ctb_size
+ * ctb_height = (frame_hegiht + ctb_size - 1)/ctb_size
+ * (ctb_size is 128(AV1 decoder))
+ *
+ */
 #define DEC_LCU_WIDTH(x_size)	((x_size + 63) / 64)
 #define ENC_LCU_WIDTH(x_size)	((x_size + 31) / 32)
 #define DEC_LCU_HEIGHT(y_size)	((y_size + 63) / 64)
 #define ENC_LCU_HEIGHT(y_size)	((y_size + 31) / 32)
 
+#define DEC_CTB_WIDTH(x_size)	((x_size + 127) / 128)
+#define DEC_CTB_HEIGHT(y_size)	((y_size + 127) / 128)
+
 #define STREAM_BUF_ALIGN		512
 #define MFC_LINEAR_BUF_SIZE		256
-#define set_strm_size_max(cpb_max)	((cpb_max) - STREAM_BUF_ALIGN)
 
 #define DEC_STATIC_BUFFER_SIZE	20480
+/* STATIC buffer for AV1 will be aligned by 32 */
+#define DEC_AV1_STATIC_BUFFER_SIZE(x_size, y_size) \
+	__ALIGN_UP((440192 + (DEC_LCU_WIDTH(x_size) * DEC_LCU_HEIGHT(y_size) * 8192)), 32)
 
 #define DEC_MV_SIZE_MB(x, y)	(WIDTH_MB(x) * (((HEIGHT_MB(y)+1)/2)*2) * 64 + 1024)
 #define DEC_HEVC_MV_SIZE(x, y)	(DEC_LCU_WIDTH(x) * DEC_LCU_HEIGHT(y) * 256 + 512)
+#define DEC_AV1_MV_SIZE(x, y)	((DEC_CTB_WIDTH(x) * DEC_CTB_HEIGHT(y) * 1536) * 10)
 
 #define ENC_HEVC_LUMA_DPB_10B_SIZE(x, y)				\
 	((x + 63) / 64) * 64 * ((y + 31) / 32 ) * 32 +			\

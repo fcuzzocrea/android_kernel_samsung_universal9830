@@ -13,87 +13,185 @@
 #ifndef __MFC_DEBUG_H
 #define __MFC_DEBUG_H __FILE__
 
+#include "mfc_memlog.h"
+
 #define DEBUG
 
 #ifdef DEBUG
 
-extern unsigned int debug_level;
-extern unsigned int debug_ts;
-extern unsigned int debug_mode_en;
-extern unsigned int dbg_enable;
-extern unsigned int nal_q_dump;
-extern unsigned int nal_q_disable;
-extern unsigned int nal_q_parallel_disable;
-extern unsigned int otf_dump;
-extern unsigned int sfr_dump;
-extern unsigned int mmcache_dump;
-extern unsigned int mmcache_disable;
-extern unsigned int llc_disable;
-extern unsigned int perf_boost_mode;
-extern unsigned int drm_predict_disable;
-extern unsigned int reg_test;
-extern unsigned int meminfo_enable;
-extern unsigned int feature_option;
-
-#define mfc_debug(level, fmt, args...)				\
-	do {							\
-		if (debug_level >= level)				\
-			dev_info(ctx->dev->device, "%s:%d: " fmt,	\
-				__func__, __LINE__, ##args);	\
+#define mfc_debug(level, fmt, args...)					\
+	do {								\
+		if ((ctx->dev->debugfs.logging_option & MFC_LOGGING_PRINTK)		\
+				&& (ctx->dev->debugfs.debug_level >= level))		\
+			dev_info(ctx->dev->device, "[c:%d] %s:%d: " fmt,\
+				ctx->num, __func__, __LINE__, ##args);	\
+									\
+		if ((ctx->dev->memlog.log_enable)			\
+			&& (ctx->dev->debugfs.logging_option & MFC_LOGGING_MEMLOG_PRINTF)	\
+			&& (ctx->dev->debugfs.memlog_level >= level))			\
+			memlog_write_printf(ctx->dev->memlog.log_obj,	\
+				MEMLOG_LEVEL_INFO,			\
+				"[DEBUG][c:%d] %s:%d: " fmt,		\
+				ctx->num, __func__, __LINE__, ##args);	\
 	} while (0)
 
-#define mfc_debug_dev(level, fmt, args...)				\
-	do {							\
-		if (debug_level >= level)				\
-			dev_info(dev->device, "%s:%d: " fmt,	\
-				__func__, __LINE__, ##args);	\
+#define mfc_core_debug(level, fmt, args...)				\
+	do {								\
+		if ((core->dev->debugfs.logging_option & MFC_LOGGING_PRINTK)		\
+				&& (core->dev->debugfs.debug_level >= level))		\
+			dev_info(core->device, "%s:%d: " fmt,		\
+				__func__, __LINE__, ##args);		\
+									\
+		if ((core->dev->memlog.log_enable)			\
+			&& (core->dev->debugfs.logging_option & MFC_LOGGING_MEMLOG_PRINTF)	\
+			&& (core->dev->debugfs.memlog_level >= level))			\
+			memlog_write_printf(core->dev->memlog.log_obj,	\
+				MEMLOG_LEVEL_INFO,			\
+				"[DEBUG][%s]%s:%d: " fmt,		\
+				core->name, __func__, __LINE__, ##args);\
 	} while (0)
+
+#define mfc_dev_debug(level, fmt, args...)				\
+	do {								\
+		if ((dev->debugfs.logging_option & MFC_LOGGING_PRINTK)		\
+				&& (dev->debugfs.debug_level >= level))		\
+			dev_info(dev->device, "%s:%d: " fmt,		\
+				__func__, __LINE__, ##args);		\
+									\
+		if ((dev->memlog.log_enable)				\
+			&& (dev->debugfs.logging_option & MFC_LOGGING_MEMLOG_PRINTF)	\
+			&& (dev->debugfs.memlog_level >= level))			\
+			memlog_write_printf(dev->memlog.log_obj,	\
+				MEMLOG_LEVEL_INFO,			\
+				"[DEBUG]%s:%d: " fmt,			\
+				__func__, __LINE__, ##args);		\
+	} while (0)
+
 #else
 #define mfc_debug(fmt, args...)
-#define mfc_debug_dev(fmt, args...)
+#define mfc_core_debug(fmt, args...)
+#define mfc_dev_debug(fmt, args...)
 #endif
 
 #define mfc_debug_enter() mfc_debug(5, "enter\n")
 #define mfc_debug_leave() mfc_debug(5, "leave\n")
+#define mfc_core_debug_enter() mfc_core_debug(5, "enter\n")
+#define mfc_core_debug_leave() mfc_core_debug(5, "leave\n")
+#define mfc_dev_debug_enter() mfc_dev_debug(5, "enter\n")
+#define mfc_dev_debug_leave() mfc_dev_debug(5, "leave\n")
 
-#define mfc_debug_dev_enter() mfc_debug_dev(5, "enter\n")
-#define mfc_debug_dev_leave() mfc_debug_dev(5, "leave\n")
-
-#define mfc_err(fmt, args...)			\
-	do {						\
-		printk(KERN_ERR "[Exynos][MFC][ ERROR]: %s:%d: " fmt,		\
-		       __func__, __LINE__, ##args);	\
+/* ERROR */
+#define mfc_pr_err(fmt, args...)					\
+	do {								\
+		pr_err("[Exynos][MFC][ ERROR]: %s:%d: " fmt,    \
+			__func__, __LINE__, ##args);		\
 	} while (0)
 
-#define mfc_err_dev(fmt, args...)			\
-	do {						\
-		dev_err(dev->device, "%s:%d: " fmt,		\
-		       __func__, __LINE__, ##args);	\
+#define mfc_dev_err(fmt, args...)				\
+	do {							\
+		if (dev->debugfs.logging_option & MFC_LOGGING_PRINTK)	\
+			dev_err(dev->device, "%s:%d: " fmt,	\
+				__func__, __LINE__, ##args);	\
+								\
+		if ((dev->memlog.log_enable)			\
+			&& (dev->debugfs.logging_option & MFC_LOGGING_MEMLOG_PRINTF))	\
+			memlog_write_printf(dev->memlog.log_obj,\
+				MEMLOG_LEVEL_ERR,		\
+				"[ERROR]%s:%d: " fmt,		\
+				__func__, __LINE__, ##args);	\
 	} while (0)
 
-#define mfc_err_ctx(fmt, args...)			\
-	do {						\
-		dev_err(ctx->dev->device, "[c:%d] %s:%d: " fmt,	\
-			ctx->num,			\
-		       __func__, __LINE__, ##args);	\
+#define mfc_core_err(fmt, args...)				\
+	do {							\
+		if (core->dev->debugfs.logging_option & MFC_LOGGING_PRINTK)	\
+			dev_err(core->device, "%s:%d: " fmt,	\
+				__func__, __LINE__, ##args);	\
+								\
+		if ((core->dev->memlog.log_enable)		\
+			&& (core->dev->debugfs.logging_option & MFC_LOGGING_MEMLOG_PRINTF))	\
+			memlog_write_printf(core->dev->memlog.log_obj,\
+				MEMLOG_LEVEL_ERR,		\
+				"[ERROR][%s]%s:%d: " fmt,		\
+				core->name, __func__, __LINE__, ##args);\
 	} while (0)
 
-#define mfc_info_dev(fmt, args...)			\
-	do {						\
-		dev_info(dev->device, "%s:%d: " fmt,		\
-			__func__, __LINE__, ##args);	\
+#define mfc_ctx_err(fmt, args...)				\
+	do {							\
+		if (ctx->dev->debugfs.logging_option & MFC_LOGGING_PRINTK)	\
+			dev_err(ctx->dev->device,		\
+				"[c:%d] %s:%d: " fmt,		\
+			ctx->num, __func__, __LINE__, ##args);	\
+								\
+		if ((ctx->dev->memlog.log_enable)		\
+			&& (ctx->dev->debugfs.logging_option & MFC_LOGGING_MEMLOG_PRINTF))	\
+			memlog_write_printf(ctx->dev->memlog.log_obj,\
+				MEMLOG_LEVEL_ERR,		\
+				"[ERROR][c:%d] %s:%d: " fmt,		\
+				ctx->num, __func__, __LINE__, ##args);	\
 	} while (0)
 
-#define mfc_info_ctx(fmt, args...)			\
-	do {						\
-		dev_info(ctx->dev->device, "[c:%d] %s:%d: " fmt,	\
-			ctx->num,			\
-			__func__, __LINE__, ##args);	\
+#define mfc_err(fmt, args...)							\
+	do {									\
+		if (core_ctx->core->dev->debugfs.logging_option & MFC_LOGGING_PRINTK)	\
+			dev_err(core_ctx->core->device,				\
+				"[c:%d] %s:%d: " fmt,				\
+			core_ctx->num, __func__, __LINE__, ##args);		\
+										\
+		if ((core_ctx->core->dev->memlog.log_enable)			\
+			&& (core_ctx->core->dev->debugfs.logging_option & MFC_LOGGING_MEMLOG_PRINTF)) \
+			memlog_write_printf(core_ctx->core->dev->memlog.log_obj,\
+				MEMLOG_LEVEL_ERR,				\
+				"[ERROR][c:%d] %s:%d: " fmt,			\
+				core_ctx->num, __func__, __LINE__, ##args);	\
+	} while (0)
+
+#define mfc_dev_info(fmt, args...)				\
+	do {							\
+		if (dev->debugfs.logging_option & MFC_LOGGING_PRINTK)	\
+			dev_info(dev->device, "%s:%d: " fmt,	\
+				__func__, __LINE__, ##args);	\
+								\
+		if ((dev->memlog.log_enable)			\
+			&& (dev->debugfs.logging_option & MFC_LOGGING_MEMLOG_PRINTF))	\
+			memlog_write_printf(dev->memlog.log_obj,\
+				MEMLOG_LEVEL_CAUTION,		\
+				"[INFO ]%s:%d: " fmt,		\
+				__func__, __LINE__, ##args);	\
+	} while (0)
+
+#define mfc_core_info(fmt, args...)				\
+	do {							\
+		if (core->dev->debugfs.logging_option & MFC_LOGGING_PRINTK)	\
+			dev_info(core->device, "%s:%d: " fmt,	\
+				__func__, __LINE__, ##args);	\
+								\
+		if ((core->dev->memlog.log_enable)			\
+			&& (core->dev->debugfs.logging_option & MFC_LOGGING_MEMLOG_PRINTF))	\
+			memlog_write_printf(core->dev->memlog.log_obj,	\
+				MEMLOG_LEVEL_CAUTION,		\
+				"[INFO ][%s]%s:%d: " fmt,		\
+				core->name, __func__, __LINE__, ##args);\
+	} while (0)
+
+
+#define mfc_ctx_info(fmt, args...)				\
+	do {							\
+		if (ctx->dev->debugfs.logging_option & MFC_LOGGING_PRINTK)	\
+			dev_info(ctx->dev->device,		\
+				"[c:%d] %s:%d: " fmt,		\
+				ctx->num, __func__, __LINE__, ##args);	\
+								\
+		if ((ctx->dev->memlog.log_enable)		\
+			&& (ctx->dev->debugfs.logging_option & MFC_LOGGING_MEMLOG_PRINTF))	\
+			memlog_write_printf(ctx->dev->memlog.log_obj,\
+				MEMLOG_LEVEL_CAUTION,		\
+				"[INFO ][c:%d] %s:%d: " fmt,	\
+				ctx->num, __func__, __LINE__, ##args);	\
 	} while (0)
 
 #define MFC_TRACE_STR_LEN		80
 #define MFC_TRACE_COUNT_MAX		1024
-#define MFC_TRACE_COUNT_PRINT		30
+#define MFC_TRACE_COUNT_PRINT		40
 #define MFC_TRACE_LOG_STR_LEN		25
 #define MFC_TRACE_LOG_COUNT_MAX		256
 #define MFC_TRACE_LOG_COUNT_PRINT	20
@@ -110,7 +208,7 @@ struct _mfc_trace_logging {
 	char str[MFC_TRACE_LOG_STR_LEN];
 };
 
-/* If there is no ctx structure */
+/* If there is no core structure */
 #define MFC_TRACE_DEV(fmt, args...)								\
 	do {											\
 		int cpu = raw_smp_processor_id();						\
@@ -121,6 +219,18 @@ struct _mfc_trace_logging {
 				fmt, ##args);				\
 	} while (0)
 
+/* If there is core structure */
+#define MFC_TRACE_CORE(fmt, args...)								\
+	do {											\
+		int cpu = raw_smp_processor_id();						\
+		int cnt;									\
+		cnt = atomic_inc_return(&core->dev->trace_ref) & (MFC_TRACE_COUNT_MAX - 1);		\
+		core->dev->mfc_trace[cnt].time = cpu_clock(cpu);					\
+		snprintf(core->dev->mfc_trace[cnt].str, MFC_TRACE_STR_LEN,				\
+				"[MFC%d] "fmt, core->id, ##args);				\
+	} while (0)
+
+
 /* If there is ctx structure */
 #define MFC_TRACE_CTX(fmt, args...)								\
 	do {											\
@@ -130,6 +240,18 @@ struct _mfc_trace_logging {
 		ctx->dev->mfc_trace[cnt].time = cpu_clock(cpu);					\
 		snprintf(ctx->dev->mfc_trace[cnt].str, MFC_TRACE_STR_LEN,				\
 				"[c:%d] " fmt, ctx->num, ##args);				\
+	} while (0)
+
+/* If there is core_ctx structure */
+#define MFC_TRACE_CORE_CTX(fmt, args...)							\
+	do {											\
+		int cpu = raw_smp_processor_id();						\
+		int cnt;									\
+		cnt = atomic_inc_return(&core_ctx->core->dev->trace_ref) & (MFC_TRACE_COUNT_MAX - 1);\
+		core_ctx->core->dev->mfc_trace[cnt].time = cpu_clock(cpu);				\
+		snprintf(core_ctx->core->dev->mfc_trace[cnt].str, MFC_TRACE_STR_LEN,			\
+				"[MFC%d][c:%d] " fmt, core_ctx->core->id,				\
+				core_ctx->num, ##args);						\
 	} while (0)
 
 
@@ -155,27 +277,26 @@ struct _mfc_trace_logging {
 				"[c:%d] " fmt, ctx->num, ##args);				\
 	} while (0)
 
-/* If there is no ctx structure */
-#define MFC_TRACE_LOG_DEV(fmt, args...)							\
+/* If there is core structure */
+#define MFC_TRACE_LOG_CORE(fmt, args...)							\
 	do {											\
 		int cpu = raw_smp_processor_id();						\
 		int cnt;									\
-		cnt = atomic_inc_return(&dev->trace_ref_log) & (MFC_TRACE_LOG_COUNT_MAX - 1);	\
-		dev->mfc_trace_logging[cnt].time = cpu_clock(cpu);				\
-		snprintf(dev->mfc_trace_logging[cnt].str, MFC_TRACE_LOG_STR_LEN,		\
+		cnt = atomic_inc_return(&core->trace_ref_log) & (MFC_TRACE_LOG_COUNT_MAX - 1);	\
+		core->mfc_trace_logging[cnt].time = cpu_clock(cpu);				\
+		snprintf(core->mfc_trace_logging[cnt].str, MFC_TRACE_LOG_STR_LEN,		\
 				fmt, ##args);							\
 	} while (0)
 
-/* If there is ctx structure */
-#define MFC_TRACE_LOG_CTX(fmt, args...)							\
+/* Resource manager dedicated */
+#define MFC_TRACE_RM(fmt, args...)								\
 	do {											\
 		int cpu = raw_smp_processor_id();						\
 		int cnt;									\
-		cnt = atomic_inc_return(&dev->trace_ref_log) & (MFC_TRACE_LOG_COUNT_MAX - 1);	\
-		ctx->dev->mfc_trace_logging[cnt].time = cpu_clock(cpu);				\
-		snprintf(ctx->dev->mfc_trace_logging[cnt].str, MFC_TRACE_LOG_STR_LEN,		\
-				"%d:" fmt, ctx->num, ##args);					\
+		cnt = atomic_inc_return(&dev->trace_ref_rm) & (MFC_TRACE_COUNT_MAX - 1);	\
+		dev->mfc_trace_rm[cnt].time = cpu_clock(cpu);					\
+		snprintf(dev->mfc_trace_rm[cnt].str, MFC_TRACE_STR_LEN,				\
+				fmt, ##args);				\
 	} while (0)
-
 
 #endif /* __MFC_DEBUG_H */

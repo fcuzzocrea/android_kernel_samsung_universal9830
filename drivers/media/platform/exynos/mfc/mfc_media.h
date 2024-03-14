@@ -1,5 +1,5 @@
 /*
- * drivers/media/platform/exynos/mfc/exynos_mfc_media.h
+ * drivers/media/platform/exynos/mfc/mfc_media.h
  *
  * Copyright (c) 2016 Samsung Electronics Co., Ltd.
  *		http://www.samsung.com/
@@ -10,8 +10,8 @@
  * (at your option) any later version.
  */
 
-#ifndef __EXYNOS_MFC_MEDIA_H
-#define __EXYNOS_MFC_MEDIA_H __FILE__
+#ifndef __MFC_MEDIA_H
+#define __MFC_MEDIA_H __FILE__
 
 #include <linux/videodev2_exynos_media.h>
 
@@ -40,6 +40,7 @@
 #define V4L2_PIX_FMT_FIMV4    v4l2_fourcc('F', 'I', 'M', '4') /* FIMV4 */
 #define V4L2_PIX_FMT_VP8      v4l2_fourcc('V', 'P', '8', '0') /* VP8 */
 #define V4L2_PIX_FMT_VP9      v4l2_fourcc('V', 'P', '9', '0') /* VP9 */
+#define V4L2_PIX_FMT_AV1      v4l2_fourcc('A', 'V', '0', '1') /* AV1 */
 #define V4L2_PIX_FMT_HEVC     v4l2_fourcc('H', 'E', 'V', 'C') /* HEVC */
 #define V4L2_PIX_FMT_BPG      v4l2_fourcc('B', 'P', 'G', '0') /* BPG */
 
@@ -56,7 +57,7 @@ enum v4l2_mpeg_mfc51_video_frame_type {
 #define V4L2_MPEG_VIDEO_MPEG4_LEVEL_6			8
 
 /* new entry for enum v4l2_mpeg_video_h264_level */
-#define V4L2_MPEG_VIDEO_H264_LEVEL_6_0			17
+#define V4L2_MPEG_VIDEO_H264_LEVEL_5_2			16
 
 /* new entry for enum v4l2_mpeg_video_header_mode */
 #define V4L2_MPEG_VIDEO_HEADER_MODE_AT_THE_READY	2
@@ -136,13 +137,26 @@ enum v4l2_mpeg_mfc51_video_frame_type {
 					(V4L2_CID_MPEG_MFC_BASE + 27)
 #define V4L2_CID_MPEG_MFC51_VIDEO_CRC_DATA_2BIT_CHROMA	\
 					(V4L2_CID_MPEG_MFC_BASE + 28)
-#define V4L2_CID_MPEG_VIDEO_PRIORITY			\
-					(V4L2_CID_MPEG_MFC_BASE + 36)
+#define V4L2_CID_MPEG_MFC51_VIDEO_FRAME_POC			\
+					(V4L2_CID_MPEG_MFC_BASE + 29)
+#define V4L2_CID_MPEG_VIDEO_SRC_BUF_FLAG			\
+					(V4L2_CID_MPEG_MFC_BASE + 30)
+#define V4L2_CID_MPEG_VIDEO_DST_BUF_FLAG			\
+					(V4L2_CID_MPEG_MFC_BASE + 31)
+#define V4L2_CID_MPEG_VIDEO_GDC_VOTF				\
+					(V4L2_CID_MPEG_MFC_BASE + 32)
+#define V4L2_CID_MPEG_VIDEO_FRAME_ERROR_TYPE\
+					(V4L2_CID_MPEG_MFC_BASE + 33)
+/* AVERAGE_QP: 34 */
+#define V4L2_CID_MPEG_VIDEO_GOP_CTRL			\
+					(V4L2_CID_MPEG_MFC_BASE + 35)
 
 #define V4L2_CID_MPEG_VIDEO_CHROMA_QP_OFFSET_CB		\
 					(V4L2_CID_MPEG_MFC_BASE + 38)
 #define V4L2_CID_MPEG_VIDEO_CHROMA_QP_OFFSET_CR		\
 					(V4L2_CID_MPEG_MFC_BASE + 39)
+#define V4L2_CID_MPEG_VIDEO_GET_DISPLAY_DELAY			\
+					(V4L2_CID_MPEG_MFC_BASE + 40)
 #define V4L2_CID_MPEG_VIDEO_DROP_CONTROL			\
 					(V4L2_CID_MPEG_MFC_BASE + 41)
 #define V4L2_CID_MPEG_VIDEO_H264_MVC_VIEW_ID			\
@@ -267,8 +281,15 @@ enum v4l2_mpeg_mfc51_video_frame_type {
 #define V4L2_CID_MPEG_MFC_HDR_USER_SHARED_HANDLE	\
 					(V4L2_CID_MPEG_MFC_BASE + 109)
 
-/* CIDs for HEVC encoding. Number gaps are for compatibility */
-
+/*
+ * CIDs for HEVC encoding.
+ * Even though it was merged to mainline, do not use it for HAL code compatibility.
+ * HEVC_MIN_QP + 110
+ * HEVC_MAX_QP + 111
+ * HEVC_I_FRAME_QP + 112
+ * HEVC_P_FRAME_QP + 113
+ * HEVC_B_FRAME_QP + 114
+ */
 #define V4L2_CID_MPEG_VIDEO_HEVC_HIERARCHICAL_QP_ENABLE \
 					(V4L2_CID_MPEG_MFC_BASE + 115)
 #define V4L2_CID_MPEG_VIDEO_HEVC_HIERARCHICAL_CODING_TYPE       \
@@ -495,6 +516,13 @@ enum v4l2_mpeg_mfc51_video_frame_type {
 					(V4L2_CID_MPEG_MFC_BASE + 231)
 #define V4L2_CID_MPEG_VIDEO_STATIC_INFO_ENABLE			\
 					(V4L2_CID_MPEG_MFC_BASE + 232)
+/* MV_SEARCH_MODE: 233 ~ 237 */
+
+/* CID for AV1 decoding interface */
+#define V4L2_CID_MPEG_MFC_AV1_FILM_GRAIN_USER_SHARED_HANDLE	\
+					(V4L2_CID_MPEG_MFC_BASE + 240)
+#define V4L2_CID_MPEG_MFC_AV1_FILM_GRAIN_PRESENT	\
+					(V4L2_CID_MPEG_MFC_BASE + 241)
 
 #define V4L2_CID_MPEG_VIDEO_BPG_THUMBNAIL_SIZE			\
 					(V4L2_CID_MPEG_MFC_BASE + 250)
@@ -503,4 +531,4 @@ enum v4l2_mpeg_mfc51_video_frame_type {
 #define V4L2_CID_MPEG_VIDEO_BPG_HEADER_SIZE			\
 					(V4L2_CID_MPEG_MFC_BASE + 252)
 
-#endif /* __EXYNOS_MFC_MEDIA_H */
+#endif /* __MFC_MEDIA_H */
