@@ -24,14 +24,10 @@
 void mfc_llc_enable(struct mfc_core *core);
 void mfc_llc_disable(struct mfc_core *core);
 void mfc_llc_flush(struct mfc_core *core);
-void mfc_llc_update_size(struct mfc_core *core, bool sizeup);
-void mfc_llc_handle_resol(struct mfc_core *core, struct mfc_ctx *ctx);
 #else
 #define mfc_llc_enable(core)			do {} while (0)
 #define mfc_llc_disable(core)			do {} while (0)
 #define mfc_llc_flush(core)			do {} while (0)
-#define mfc_llc_update_size(core, sizeup)	do {} while (0)
-#define mfc_llc_handle_resol(core, ctx)		do {} while (0)
 #endif
 
 #endif /* __MFC_LLC_H */
