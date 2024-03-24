@@ -728,6 +728,8 @@ int mfc_alloc_firmware(struct mfc_core *core)
 /* Load firmware to MFC */
 int mfc_load_firmware(struct mfc_core *core)
 {
+	struct firmware *fw_blob;
+
 	int err;
 
 	mfc_core_debug_enter();
