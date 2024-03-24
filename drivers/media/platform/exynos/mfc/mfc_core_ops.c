@@ -100,9 +100,6 @@ static int __mfc_core_init(struct mfc_core *core, struct mfc_ctx *ctx)
 err_hw_init:
 	mfc_core_pm_power_off(core);
 
-err_pwr_enable:
-	mfc_release_common_context(core);
-
 err_common_ctx:
 
 err_fw_load:
