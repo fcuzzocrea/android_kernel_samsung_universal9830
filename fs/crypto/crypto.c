@@ -260,12 +260,6 @@ struct page *fscrypt_encrypt_page(const struct inode *inode,
 	struct page *ciphertext_page = page;
 	int err;
 
-#ifdef CONFIG_DDAR
-	if (fscrypt_dd_encrypted_inode(inode)) {
-		// Invert crypto order. OEM crypto must perform after 3rd party crypto
-		return NULL;
-	}
-#endif
 	if (inode->i_sb->s_cop->flags & FS_CFLG_OWN_PAGES) {
 		/* with inplace-encryption we just encrypt the page */
 		err = fscrypt_do_page_crypto(inode, FS_ENCRYPT, lblk_num, page,
@@ -329,13 +323,6 @@ int fscrypt_decrypt_page(const struct inode *inode, struct page *page,
 	if (WARN_ON_ONCE(!PageLocked(page) &&
 			 !(inode->i_sb->s_cop->flags & FS_CFLG_OWN_PAGES)))
 		return -EINVAL;
-#ifdef CONFIG_DDAR
-	if (fscrypt_dd_encrypted_inode(inode)) {
-		// Invert crypto order. OEM crypto must perform after 3rd party crypto
-		return 0;
-	}
-#endif
-
 	return fscrypt_do_page_crypto(inode, FS_DECRYPT, lblk_num, page, page,
 				      len, offs, GFP_NOFS);
 }
