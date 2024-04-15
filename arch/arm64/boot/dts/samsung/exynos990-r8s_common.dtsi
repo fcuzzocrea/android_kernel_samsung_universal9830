@@ -17,7 +17,6 @@
 #include "exynos990-r8s_sound.dtsi"
 #include "exynos990-r8s_input_common.dtsi"
 #include "exynos990-r8_vib.dtsi"
-#include "exynos9830-inputbooster.dtsi"
 #include "exynos990-r8s_panel_display_modes.dtsi"
 
 / {

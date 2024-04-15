@@ -15,7 +15,6 @@
 #include "exynos9830-picasso2lte_mst_r00.dtsi"
 #include "exynos9830-canvas_sound.dtsi"
 #include "exynos9830-c1_input_common.dtsi"
-#include "exynos9830-inputbooster.dtsi"
 
 / {
 	compatible = "samsung,exynos990", "samsung,UNIVERSAL990";

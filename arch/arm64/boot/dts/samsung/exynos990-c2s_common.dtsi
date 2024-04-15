@@ -17,7 +17,6 @@
 #include "exynos9830-canvas_sound.dtsi"
 #include "exynos9830-c2_input_common.dtsi"
 #include "exynos9830-hubble_vib.dtsi"
-#include "exynos9830-inputbooster.dtsi"
 #include "exynos990-c2s_panel_display_modes.dtsi"
 
 / {
