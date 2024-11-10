@@ -341,6 +341,10 @@ config SOC_EXYNOS9830
 	select CLKSRC_EXYNOS_MCT
 	select PINCTRL
 	select SAMSUNG_DMADEV
+	
+config MODEL_C1S
+	bool "Samsung Galaxy Note 20 5G"
+	depends on SOC_EXYNOS9830
 
 config MODEL_Y2S
 	bool "Samsung Galaxy S20  Plus"
