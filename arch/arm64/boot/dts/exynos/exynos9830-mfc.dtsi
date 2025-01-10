@@ -1,7 +1,7 @@
 /*
  * SAMSUNG EXYNOS SoC mfc device tree source
  *
- * Copyright (c) 2018 Samsung Electronics Co., Ltd.
+ * Copyright (c) 2021 Samsung Electronics Co., Ltd.
  *		http://www.samsung.com
  *
  * SAMSUNG EXYNOS SoC mfc device nodes are listed in this file.
@@ -15,31 +15,23 @@
 
 #include <dt-bindings/clock/exynos9830.h>
 #include <dt-bindings/interrupt-controller/exynos9830.h>
+#include <dt-bindings/interrupt-controller/arm-gic.h>
 
 / {
-	mfc_0: mfc@188D0000 {
+	mfc: mfc {
 		/* Basic setting */
 		compatible = "samsung,exynos-mfc";
-		reg = <0x0 0x186D0000 0x10000>;
-		interrupts = <0 INTREQ__MFC0 IRQ_TYPE_LEVEL_HIGH>;
-		clock-names = "aclk_mfc";
-		clocks = <&clock GATE_MFC0>;
+
+		/* for vb2 device */
 		iommus = <&sysmmu_mfc0>, <&sysmmu_mfc1>;
 
+		/* samsung,tzmp; */
+
 		/* MFC version */
-		ip_ver = <0x14000100>;
+		ip_ver = <0x1022>;
 
 		/* Debug mode */
-		debug_mode = <0>;
-
-		/* Sysmmu check */
-		share_sysmmu = <0>;
-		axid_mask = <0xFFFF>;
-		mfc_fault_num = <0x0>;
-		trans_info_offset = <0x1004>;
-
-		/* LLC (Last Level Cache) */
-		llc = <1>;
+		debug_mode = <1>;
 
 		/* NAL-Q size */
 		nal_q_entry_size = <512>;
@@ -64,14 +56,20 @@
 		drm_switch_predict = <1 0x0>;
 		/* Support SBWC per-frame control for encoder src */
 		sbwc_enc_src_ctrl = <1 0x200110>;
+		/* Encoder IDR flag */
+		enc_idr_flag = <1 0x210611>; /* DARIO CHECK*/
+
+		/* AV1 Decoder */
+		support_av1_dec = <0>;
+		/* Support AV1 Film Grain Feature */
+		av1_film_grain = <0 0x0>;
 
 		/* Default 10bit format for decoding (1: P010, 0: 8+2) */
 		P010_decoding = <1>;
 		/* Dithering option for 8bit display device */
 		dithering_enable = <0>;
-
-		/* Encoder time stamp delta */
-		enc_ts_delta = <1 0x211208>;
+		/* Decoder stride align (default: 16, AMD GPU: 256) */
+		stride_align = <16>;
 
 		/* Formats */
 		support_10bit = <1>;
@@ -82,8 +80,20 @@
 		support_sbwc = <1>;
 		support_sbwcl = <0>;
 
+		/* SBWC decoder max resolution */
+		sbwc_dec_max_width = <1920>;
+		sbwc_dec_max_height = <1088>;
+		sbwc_dec_max_inst_num = <1>;
+
 		/* HDR10+ num max window */
 		max_hdr_win = <1>;
+
+		/* error type for sync_point display */
+		/* (1: concealment display, 2: error display, 3: error no display) */
+		display_err_type = <2>;
+
+		/* output buffer Q framerate */
+		display_framerate = <0>;
 
 		/* Encoder default parameter: max number is 100 */
 		enc_param_num = <25>;
@@ -112,6 +122,8 @@
 		bw_dec_vp8		= <28672 30468 22324>;
 		bw_dec_vp9		= <18351 18947 16877>;
 		bw_dec_vp9_10bit	= <42384 34452 31766>;
+		bw_dec_av1		= <0 0 0>;
+		bw_dec_av1_10bit	= <0 0 0>;
 		bw_dec_mpeg4		= <31540 25368 15770>;
 
 		/* BW <peak, read, write> : KB/UHD frame. For SBWC format */
@@ -131,13 +143,7 @@
 		sbwc_bw_dec_vp9_10bit	= <17787 15582 14413>;
 		sbwc_bw_dec_mpeg4	= <18924 15221 9462>;
 
-		/* QoS */
-		num_default_qos_steps = <8>;
-		num_encoder_qos_steps = <8>;
-		max_mb = <5315425>;
-		mfc_freq_control = <1>;
-		mo_control = <1>;
-		bw_control = <1>;
+		/* QoS bitrate */
 		num_mfc_freq = <5>;
 		mfc_freqs = <133000 266000 400000 533000 666000>;
 		/* spec: H264(240M) VP8(80M) */
@@ -146,6 +152,7 @@
 		/* QoS weight (%) */
 		qos_weight_h264_hevc = <100>;
 		qos_weight_vp8_vp9 = <100>;
+		qos_weight_av1 = <70>;
 		qos_weight_other_codec = <25>;
 		qos_weight_3plane = <80>;
 		qos_weight_10bit = <75>;
@@ -156,162 +163,219 @@
 		qos_weight_num_of_tile = <75>;
 		qos_weight_super64_bframe = <60>;
 
-		/* Sub nodes for sysmmu, hwfc and mmcache */
+		/* core balance(%) for resource managing */
+		core_balance = <100>;
+
+		/* need control for mfc idle clock */
+		idle_clk_ctrl = <0>;
+
+		/* Sub nodes for MFC core */
 		#address-cells = <2>;
 		#size-cells = <1>;
 		ranges;
-		iommu {
-			reg = <0x0 0x18670000 0x9000>,
-			    <0x0 0x186A0000 0x9000>;
-		};
-		hwfc {
-			reg = <0x0 0x18A48000 0x100>;
-		};
 
-		/* Default QoS table */
-		mfc_default_qos_table {
-			mfc_d_qos_variant_0 {
-				thrd_mb = <0>;
-				freq_mfc = <133000>;
-				freq_int = <133000>;
-				freq_mif = <421000>;
-				time_fw = <1020>;
-				bts_scen = "default";
+		/* MFC core device */
+		mfc_core0: MFC-0 {
+			/* Basic setting */
+			compatible = "samsung,exynos-mfc-core";
+			id = <0>;
+			reg = <0x0 0x186D0000 0x10000>
+			interrupts = <0 INTREQ__MFC0 IRQ_TYPE_LEVEL_HIGH>;
+			clock-names = "aclk_mfc";
+			clocks = <&clock GATE_MFC0>;
+			iommus = <&sysmmu_mfc0>, <&sysmmu_mfc1>;
+
+			/* samsung,tzmp */
+			/* samsung,imgloader-s2mpu-support */
+
+			/* MFC version */
+			ip_ver = <0x1022>;
+
+			/* Sysmmu check */
+			share_sysmmu = <0>;
+			axid_mask = <0xFFFF>;
+			mfc_fault_num = <0x0>;
+			trans_info_offset = <0x1004>;
+
+			/* LLC (Last Level Cache) */
+			llc = <1>;
+			need_llc_flush = <0>;
+
+			/* vOTF */
+			mfc_votf_base = <0x0>;
+			gdc_votf_base = <0x0>;
+			//dpu_votf_base = <0x0>;
+			votf_start_offset = <0x0>;
+			votf_end_offset = <0x0>;
+
+			/* QoS */
+			num_default_qos_steps = <8>;
+			num_encoder_qos_steps = <8>;
+			max_mb = <5315425>;
+			max_hw_mb = <3888000>;
+			mfc_freq_control = <0>;
+			mo_control = <1>;
+			bw_control = <1>;
+
+			/* Device virtual address DARIO CHECK */
+			#dma-address-cells = <1>;
+			#dma-size-cells = <1>;
+			dma-window = <0x0 0xD0000000>;
+
+			/* Sub nodes for sysmmu, hwfc and mmcache */
+			#address-cells = <2>;
+			#size-cells = <1>;
+			ranges;
+			iommu {
+			        reg = <0x0 0x18670000 0x9000>,
+					      <0x0 0x186A0000 0x9000>;
 			};
-			mfc_d_qos_variant_1 {
-				thrd_mb = <256496>;
-				freq_mfc = <266000>;
-				freq_int = <133000>;
-				freq_mif = <546000>;
-				time_fw = <739>;
-				bts_scen = "default";
+
+			/* Default QoS table */
+			mfc_default_qos_table {
+				mfc_d_qos_variant_0 {
+					thrd_mb = <0>;
+					freq_mfc = <133000>;
+					freq_int = <133000>;
+					freq_mif = <421000>;
+					time_fw = <1020>;
+					bts_scen = "default";
+				};
+				mfc_d_qos_variant_1 {
+					thrd_mb = <256496>;
+					freq_mfc = <266000>;
+					freq_int = <133000>;
+					freq_mif = <546000>;
+					time_fw = <739>;
+					bts_scen = "default";
+				};
+				mfc_d_qos_variant_2 {
+					thrd_mb = <528919>;
+					freq_mfc = <400000>;
+					freq_int = <200000>;
+					freq_mif = <845000>;
+					time_fw = <476>;
+					bts_scen = "default";
+				};
+				mfc_d_qos_variant_3 {
+					thrd_mb = <1109097>;
+					freq_mfc = <400000>;
+					freq_int = <200000>;
+					freq_mif = <1014000>;
+					time_fw = <430>;
+					bts_scen = "default";
+				};
+				mfc_d_qos_variant_4 {
+					thrd_mb = <1764112>;
+					freq_mfc = <400000>;
+					freq_int = <266000>;
+					freq_mif = <1014000>;
+					time_fw = <392>;
+					bts_scen = "default";
+				};
+				mfc_d_qos_variant_5 {
+					thrd_mb = <2053926>;
+					freq_mfc = <533000>;
+					freq_int = <400000>;
+					freq_mif = <1539000>;
+					time_fw = <277>;
+					bts_scen = "mfc_uhd";
+				};
+				mfc_d_qos_variant_6 {
+					thrd_mb = <3135247>;
+					freq_mfc = <666000>;
+					freq_int = <533000>;
+					freq_mif = <2288000>;
+					time_fw = <216>;
+					bts_scen = "mfc_uhd_10bit";
+				};
+				mfc_d_qos_variant_7 {
+					thrd_mb = <4253457>;
+					freq_mfc = <666000>;
+					freq_int = <533000>;
+					freq_mif = <2730000>;
+					time_fw = <209>;
+					bts_scen = "mfc_8k_dec30";
+				};
 			};
-			mfc_d_qos_variant_2 {
-				thrd_mb = <528919>;
-				freq_mfc = <400000>;
-				freq_int = <200000>;
-				freq_mif = <845000>;
-				time_fw = <476>;
-				bts_scen = "default";
+
+			/* Encoder only QoS table */
+			mfc_encoder_qos_table {
+				mfc_e_qos_variant_0 {
+					thrd_mb = <0>;
+					freq_mfc = <133000>;
+					freq_int = <133000>;
+					freq_mif = <421000>;
+					time_fw = <1020>;
+					bts_scen = "default";
+				};
+				mfc_e_qos_variant_1 {
+					thrd_mb = <256496>;
+					freq_mfc = <266000>;
+					freq_int = <133000>;
+					freq_mif = <546000>;
+					time_fw = <739>;
+					bts_scen = "default";
+				};
+				mfc_e_qos_variant_2 {
+					thrd_mb = <528919>;
+					freq_mfc = <400000>;
+					freq_int = <200000>;
+					freq_mif = <845000>;
+					time_fw = <476>;
+					bts_scen = "default";
+				};
+				mfc_e_qos_variant_3 {
+					thrd_mb = <1109097>;
+					freq_mfc = <400000>;
+					freq_int = <200000>;
+					freq_mif = <1014000>;
+					time_fw = <430>;
+					bts_scen = "default";
+				};
+				mfc_e_qos_variant_4 {
+					thrd_mb = <1764112>;
+					freq_mfc = <400000>;
+					freq_int = <200000>;
+					freq_mif = <1352000>;
+					time_fw = <392>;
+					bts_scen = "default";
+				};
+				mfc_e_qos_variant_5 {
+					thrd_mb = <2053926>;
+					freq_mfc = <666000>;
+					freq_int = <266000>;
+					freq_mif = <1014000>;
+					time_fw = <343>;
+					bts_scen = "mfc_uhd";
+				};
+				mfc_e_qos_variant_6 {
+					thrd_mb = <2496430>;
+					freq_mfc = <400000>;
+					freq_int = <266000>;
+					freq_mif = <1716000>;
+					time_fw = <397>;
+					bts_scen = "mfc_uhd_enc60";
+				};
+				mfc_e_qos_variant_7 {
+					thrd_mb = <3193027>;
+					freq_mfc = <533000>;
+					freq_int = <333000>;
+					freq_mif = <1716000>;
+					time_fw = <463>;
+					bts_scen = "mfc_uhd_enc60";
+				};
 			};
-			mfc_d_qos_variant_3 {
-				thrd_mb = <1109097>;
-				freq_mfc = <400000>;
-				freq_int = <200000>;
-				freq_mif = <1014000>;
-				time_fw = <430>;
-				bts_scen = "default";
-			};
-			mfc_d_qos_variant_4 {
-				thrd_mb = <1764112>;
-				freq_mfc = <400000>;
-				freq_int = <266000>;
-				freq_mif = <1014000>;
-				time_fw = <392>;
-				bts_scen = "default";
-			};
-			mfc_d_qos_variant_5 {
-				thrd_mb = <2053926>;
-				freq_mfc = <533000>;
-				freq_int = <400000>;
-				freq_mif = <1539000>;
-				time_fw = <277>;
-				bts_scen = "mfc_uhd";
-			};
-			mfc_d_qos_variant_6 {
-				thrd_mb = <3135247>;
+
+			/* QoS table for performance boost mode */
+			mfc_perf_boost_table {
+				num_cluster = <3>;
+				freq_cluster = <1742000 1898000 1456000>;
 				freq_mfc = <666000>;
-				freq_int = <533000>;
-				freq_mif = <2288000>;
-				time_fw = <216>;
+				freq_int = <534000>;
+				freq_mif = <2730000>;
 				bts_scen = "mfc_uhd_10bit";
 			};
-			mfc_d_qos_variant_7 {
-				thrd_mb = <4253457>;
-				freq_mfc = <666000>;
-				freq_int = <533000>;
-				freq_mif = <2730000>;
-				time_fw = <209>;
-				bts_scen = "mfc_8k_dec30";
-			};
-		};
-
-		/* Encoder only QoS table */
-		mfc_encoder_qos_table {
-			mfc_e_qos_variant_0 {
-				thrd_mb = <0>;
-				freq_mfc = <133000>;
-				freq_int = <133000>;
-				freq_mif = <421000>;
-				time_fw = <1020>;
-				bts_scen = "default";
-			};
-			mfc_e_qos_variant_1 {
-				thrd_mb = <256496>;
-				freq_mfc = <266000>;
-				freq_int = <133000>;
-				freq_mif = <546000>;
-				time_fw = <739>;
-				bts_scen = "default";
-			};
-			mfc_e_qos_variant_2 {
-				thrd_mb = <528919>;
-				freq_mfc = <400000>;
-				freq_int = <200000>;
-				freq_mif = <845000>;
-				time_fw = <476>;
-				bts_scen = "default";
-			};
-			mfc_e_qos_variant_3 {
-				thrd_mb = <1109097>;
-				freq_mfc = <400000>;
-				freq_int = <200000>;
-				freq_mif = <1014000>;
-				time_fw = <430>;
-				bts_scen = "default";
-			};
-			mfc_e_qos_variant_4 {
-				thrd_mb = <1764112>;
-				freq_mfc = <400000>;
-				freq_int = <200000>;
-				freq_mif = <1352000>;
-				time_fw = <392>;
-				bts_scen = "default";
-			};
-			mfc_e_qos_variant_5 {
-				thrd_mb = <2053926>;
-				freq_mfc = <666000>;
-				freq_int = <266000>;
-				freq_mif = <1014000>;
-				time_fw = <343>;
-				bts_scen = "mfc_uhd";
-			};
-			mfc_e_qos_variant_6 {
-				thrd_mb = <2496430>;
-				freq_mfc = <400000>;
-				freq_int = <266000>;
-				freq_mif = <1716000>;
-				time_fw = <397>;
-				bts_scen = "mfc_uhd_enc60";
-			};
-			mfc_e_qos_variant_7 {
-				thrd_mb = <3193027>;
-				freq_mfc = <533000>;
-				freq_int = <333000>;
-				freq_mif = <1716000>;
-				time_fw = <463>;
-				bts_scen = "mfc_uhd_enc60";
-			};
-		};
-
-		/* QoS table for performance boost mode */
-		mfc_perf_boost_table {
-			num_cluster = <3>;
-			freq_cluster = <1742000 1898000 1456000>;
-			freq_mfc = <666000>;
-			freq_int = <534000>;
-			freq_mif = <2730000>;
-			bts_scen = "mfc_uhd_10bit";
 		};
 	};
 };
