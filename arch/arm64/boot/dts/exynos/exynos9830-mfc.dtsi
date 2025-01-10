@@ -179,7 +179,7 @@
 			/* Basic setting */
 			compatible = "samsung,exynos-mfc-core";
 			id = <0>;
-			reg = <0x0 0x186D0000 0x10000>
+			reg = <0x0 0x186D0000 0x10000>;
 			interrupts = <0 INTREQ__MFC0 IRQ_TYPE_LEVEL_HIGH>;
 			clock-names = "aclk_mfc";
 			clocks = <&clock GATE_MFC0>;
