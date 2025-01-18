@@ -526,15 +526,17 @@ static int mfc_open(struct file *file)
 
 	/* Mark context as idle */
 	dev->ctx[ctx->num] = ctx;
+	mfc_ctx_info("DARIO 1\n");
 	for (i = 0; i < MFC_NUM_CORE; i++)
 		ctx->op_core_num[i] = MFC_CORE_INVALID;
-
+	mfc_ctx_info("DARIO 2\n");
 	ret = mfc_rm_instance_init(dev, ctx);
+	
 	if (ret) {
 		mfc_ctx_err("rm_instance_init failed\n");
 		goto err_drm_start;
 	}
-
+	mfc_ctx_info("DARIO 4\n");
 #if IS_ENABLED(CONFIG_MFC_USES_OTF)
 #if IS_ENABLED(CONFIG_VIDEO_EXYNOS_REPEATER)
 	if (mfc_is_encoder_otf_node(node)) {

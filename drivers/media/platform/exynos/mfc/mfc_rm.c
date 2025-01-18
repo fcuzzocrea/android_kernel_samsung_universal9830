@@ -1215,10 +1215,11 @@ int mfc_rm_instance_init(struct mfc_dev *dev, struct mfc_ctx *ctx)
 {
 	struct mfc_core *core;
 	int i, ret;
-
+	mfc_ctx_info("DARIO 3\n");
 	mfc_debug_enter();
-
+	mfc_ctx_info("DARIO 4\n");
 	mfc_get_corelock_ctx(ctx);
+	mfc_ctx_info("DARIO 5\n");
 
 	/*
 	 * The FW memory for all cores is allocated in advance.
@@ -1227,12 +1228,13 @@ int mfc_rm_instance_init(struct mfc_dev *dev, struct mfc_ctx *ctx)
 	 * than all DVA that FW approaches.
 	 */
 	for (i = 0; i < dev->num_core; i++) {
+		mfc_ctx_info("DARIO 6\n");
 		core = dev->core[i];
 		if (!core) {
 			mfc_ctx_err("[RM] There is no MFC-%d\n", i);
 			continue;
 		}
-
+		mfc_ctx_info("DARIO 7\n");
 		if (!core->fw.status) {
 			ret = mfc_alloc_firmware(core);
 			if (ret)
@@ -1240,6 +1242,7 @@ int mfc_rm_instance_init(struct mfc_dev *dev, struct mfc_ctx *ctx)
 			core->fw.status = 1;
 		}
 	}
+	mfc_ctx_info("DARIO 9\n");
 
 	mfc_change_op_mode(ctx, MFC_OP_SINGLE);
 	ctx->op_core_type = MFC_OP_CORE_NOT_FIXED;
@@ -1247,24 +1250,24 @@ int mfc_rm_instance_init(struct mfc_dev *dev, struct mfc_ctx *ctx)
 		ctx->op_core_num[MFC_CORE_MAIN] = MFC_DEC_DEFAULT_CORE;
 	else
 		ctx->op_core_num[MFC_CORE_MAIN] = MFC_ENC_DEFAULT_CORE;
-
+	mfc_ctx_info("DARIO 10\n");
 	core = mfc_get_main_core(dev, ctx);
 	if (!core) {
 		mfc_ctx_err("[RM] There is no main core\n");
 		ret = -EINVAL;
 		goto err_inst_init;
 	}
-
+	mfc_ctx_info("DARIO 11\n");
 	mfc_debug(2, "[RM] init instance core-%d\n",
 			ctx->op_core_num[MFC_CORE_MAIN]);
 	MFC_TRACE_RM("[c:%d] init instance core-%d\n", ctx->num,
 			ctx->op_core_num[MFC_CORE_MAIN]);
-	ret = core->core_ops->instance_init(core, ctx);
+	ret = core->core_ops->instance_init(core, ctx); ///// BUG BUG BUG
 	if (ret) {
 		ctx->op_core_num[MFC_CORE_MAIN] = MFC_CORE_INVALID;
 		mfc_ctx_err("[RM] Failed to init\n");
 	}
-
+	mfc_ctx_info("DARIO 12\n");
 err_inst_init:
 	mfc_release_corelock_ctx(ctx);
 

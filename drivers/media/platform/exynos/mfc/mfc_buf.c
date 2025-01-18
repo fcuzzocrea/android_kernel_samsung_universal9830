@@ -32,16 +32,19 @@ static int __mfc_alloc_common_context(struct mfc_core *core,
 	ctx_buf->buftype = MFCBUF_NORMAL;
 
 #if IS_ENABLED(CONFIG_EXYNOS_CONTENT_PATH_PROTECTION)
+	mfc_core_err("DARIO 27\n");
 	if (buf_type == MFCBUF_DRM) {
 		ctx_buf = &core->drm_common_ctx_buf;
 		ctx_buf->buftype = MFCBUF_DRM;
 	}
+	mfc_core_err("DARIO 28\n");
 #endif
 
 	buf_size = dev->variant->buf_size->ctx_buf;
 	ctx_buf->size = buf_size->dev_ctx;
 
 	if (mfc_mem_ion_alloc(dev, ctx_buf)) {
+	mfc_core_err("DARIO 29\n");
 		mfc_core_err("Allocating %s context buffer failed\n",
 				buf_type == MFCBUF_DRM ? "secure" : "normal");
 		return -ENOMEM;
@@ -60,11 +63,11 @@ static int __mfc_alloc_common_context(struct mfc_core *core,
 int mfc_alloc_common_context(struct mfc_core *core)
 {
 	int ret = 0;
-
+	mfc_core_err("DARIO 25\n");
 	ret = __mfc_alloc_common_context(core, MFCBUF_NORMAL);
 	if (ret)
 		return ret;
-
+	mfc_core_err("DARIO 26\n");
 #if IS_ENABLED(CONFIG_EXYNOS_CONTENT_PATH_PROTECTION)
 	if (core->fw.drm_status) {
 		ret = __mfc_alloc_common_context(core, MFCBUF_DRM);
@@ -72,7 +75,6 @@ int mfc_alloc_common_context(struct mfc_core *core)
 			return ret;
 	}
 #endif
-
 	return ret;
 }
 
@@ -684,6 +686,7 @@ int mfc_alloc_firmware(struct mfc_core *core)
 {
 	struct mfc_dev *dev = core->dev;
 	struct mfc_ctx_buf_size *buf_size;
+	mfc_core_err("DARIO 8\n");
 
 	mfc_core_debug_enter();
 

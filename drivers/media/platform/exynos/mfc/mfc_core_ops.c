@@ -36,19 +36,19 @@ static int __mfc_core_init(struct mfc_core *core, struct mfc_ctx *ctx)
 {
 	struct mfc_dev *dev = core->dev;
 	int ret = 0;
-
+	mfc_ctx_info("DARIO 20\n");
 	/* set meerkat timer */
 	mod_timer(&core->meerkat_timer, jiffies + msecs_to_jiffies(MEERKAT_TICK_INTERVAL));
-
+	mfc_ctx_info("DARIO 21\n");
 	/* set MFC idle timer */
 	atomic_set(&core->hw_run_bits, 0);
 	mfc_core_change_idle_mode(core, MFC_IDLE_MODE_NONE);
-
+	mfc_ctx_info("DARIO 22\n");
 	/* Load the FW */
 	ret = mfc_load_firmware(core);
 	if (ret)
 		goto err_fw_load;
-
+	mfc_ctx_info("DARIO 23\n");
 #if IS_ENABLED(CONFIG_EXYNOS_CONTENT_PATH_PROTECTION)
 	if (!core->drm_fw_buf.daddr) {
 		mfc_core_err("DRM F/W buffer is not allocated\n");
@@ -66,6 +66,7 @@ static int __mfc_core_init(struct mfc_core *core, struct mfc_ctx *ctx)
 		}
 	}
 #endif
+	mfc_ctx_info("DARIO 24\n");
 
 	ret = mfc_alloc_common_context(core);
 	if (ret < 0) {
@@ -265,8 +266,9 @@ int mfc_core_instance_init(struct mfc_core *core, struct mfc_ctx *ctx)
 	int ret = 0;
 
 	mfc_core_debug_enter();
-
+	mfc_ctx_info("DARIO 12\n");
 	ret = mfc_core_get_hwlock_dev(core);
+	mfc_ctx_info("DARIO 13\n");
 	if (ret < 0) {
 		mfc_core_err("Failed to get hwlock\n");
 		mfc_core_err("dev.hwlock.dev = 0x%lx, bits = 0x%lx, owned_by_irq = %d, wl_count = %d, transfer_owner = %d\n",
@@ -274,11 +276,11 @@ int mfc_core_instance_init(struct mfc_core *core, struct mfc_ctx *ctx)
 				core->hwlock.wl_count, core->hwlock.transfer_owner);
 		goto err_hw_lock;
 	}
-
+	mfc_ctx_info("DARIO 14\n");
 	core->num_inst++;
 	if (ctx->is_drm)
 		core->num_drm_inst++;
-
+	mfc_ctx_info("DARIO 15\n");
 	/* Allocate memory for core context */
 	core_ctx = kzalloc(sizeof(*core_ctx), GFP_KERNEL);
 	if (!core_ctx) {
@@ -286,40 +288,38 @@ int mfc_core_instance_init(struct mfc_core *core, struct mfc_ctx *ctx)
 		ret = -ENOMEM;
 		goto err_core_ctx_alloc;
 	}
-
+	mfc_ctx_info("DARIO 16\n");
 	core_ctx->core = core;
 	core_ctx->ctx = ctx;
 	core_ctx->num = ctx->num;
 	core_ctx->is_drm = ctx->is_drm;
 	core_ctx->inst_no = MFC_NO_INSTANCE_SET;
 	core->core_ctx[core_ctx->num] = core_ctx;
-
+	mfc_ctx_info("DARIO 17\n");
 	init_waitqueue_head(&core_ctx->drc_wq);
 	init_waitqueue_head(&core_ctx->cmd_wq);
 	mfc_core_init_listable_wq_ctx(core_ctx);
 	spin_lock_init(&core_ctx->buf_queue_lock);
 	mfc_clear_bit(core_ctx->num, &core->work_bits);
 	INIT_LIST_HEAD(&core_ctx->qos_list);
-
+	mfc_ctx_info("DARIO 18\n");
 	mfc_create_queue(&core_ctx->src_buf_queue);
-
+	mfc_ctx_info("DARIO 19\n");
 	if (core->num_inst == 1) {
 		ret = __mfc_core_init(core, ctx);
 		if (ret)
 			goto err_init_inst;
 
-		if (dev->debugfs.perf_boost_mode)
-			mfc_core_perf_boost_enable(core);
+		//if (dev->debugfs.perf_boost_mode)
+		//	mfc_core_perf_boost_enable(core);
 
 		if (!dev->fw_date)
 			dev->fw_date = core->fw.date;
 		else if (dev->fw_date > core->fw.date)
 			dev->fw_date = core->fw.date;
 	}
-
 	mfc_core_release_hwlock_dev(core);
 	mfc_perf_init(core);
-
 	mfc_core_debug_leave();
 
 	return ret;
