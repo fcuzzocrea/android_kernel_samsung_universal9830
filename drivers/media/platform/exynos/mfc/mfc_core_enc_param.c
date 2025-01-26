@@ -60,7 +60,7 @@ void mfc_core_set_slice_mode(struct mfc_core *core, struct mfc_ctx *ctx)
 	struct mfc_enc *enc = ctx->enc_priv;
 
 	/* multi-slice control */
-	if (enc->slice_mode == V4L2_MPEG_VIDEO_MULTI_SICE_MODE_MAX_BYTES)
+	if (enc->slice_mode == V4L2_MPEG_VIDEO_MULTI_SLICE_MODE_MAX_BYTES)
 		MFC_CORE_RAW_WRITEL((enc->slice_mode + 0x4), MFC_REG_E_MSLICE_MODE);
 	else if (enc->slice_mode == V4L2_MPEG_VIDEO_MULTI_SLICE_MODE_MAX_MB_ROW)
 		MFC_CORE_RAW_WRITEL((enc->slice_mode - 0x2), MFC_REG_E_MSLICE_MODE);
@@ -70,10 +70,10 @@ void mfc_core_set_slice_mode(struct mfc_core *core, struct mfc_ctx *ctx)
 		MFC_CORE_RAW_WRITEL(enc->slice_mode, MFC_REG_E_MSLICE_MODE);
 
 	/* multi-slice MB number or bit size */
-	if ((enc->slice_mode == V4L2_MPEG_VIDEO_MULTI_SICE_MODE_MAX_MB) ||
+	if ((enc->slice_mode == V4L2_MPEG_VIDEO_MULTI_SLICE_MODE_MAX_MB) ||
 			(enc->slice_mode == V4L2_MPEG_VIDEO_MULTI_SLICE_MODE_MAX_MB_ROW)) {
 		MFC_CORE_RAW_WRITEL(enc->slice_size_mb, MFC_REG_E_MSLICE_SIZE_MB);
-	} else if ((enc->slice_mode == V4L2_MPEG_VIDEO_MULTI_SICE_MODE_MAX_BYTES) ||
+	} else if ((enc->slice_mode == V4L2_MPEG_VIDEO_MULTI_SLICE_MODE_MAX_BYTES) ||
 			(enc->slice_mode == V4L2_MPEG_VIDEO_MULTI_SLICE_MODE_MAX_FIXED_BYTES)){
 		MFC_CORE_RAW_WRITEL(enc->slice_size_bits, MFC_REG_E_MSLICE_SIZE_BITS);
 	} else {
@@ -120,29 +120,20 @@ static void __mfc_set_gop_size(struct mfc_core *core, struct mfc_ctx *ctx,
 
 	if (ctrl_mode) {
 		p->i_frm_ctrl_mode = 1;
-		/*
-		 * gop_ctrl 1: gop_size means the I frame interval
-		 * gop_ctrl 0: gop_size means the number of P frames.
-		 */
-		if (p->gop_ctrl) {
-			p->i_frm_ctrl = p->gop_size;
-		} else {
-			p->i_frm_ctrl = p->gop_size * (p->num_b_frame + 1);
-			if (p->i_frm_ctrl >= 0x3FFFFFFF) {
-				mfc_ctx_info("I frame interval is bigger than max: %d\n",
-						p->i_frm_ctrl);
-				p->i_frm_ctrl = 0x3FFFFFFF;
-			}
+		p->i_frm_ctrl = p->gop_size * (p->num_b_frame + 1);
+		if (p->i_frm_ctrl >= 0x3FFFFFFF) {
+			mfc_ctx_info("I frame interval is bigger than max: %d\n",
+					p->i_frm_ctrl);
+			p->i_frm_ctrl = 0x3FFFFFFF;
 		}
 	} else {
 		p->i_frm_ctrl_mode = 0;
 		p->i_frm_ctrl = p->gop_size;
 	}
 
-	mfc_debug(2, "I frame interval: %d, (P: %d, B: %d), ctrl mode: %d, gop ctrl: %d\n",
-			p->i_frm_ctrl,
-			p->gop_ctrl ? (p->gop_size / (p->num_b_frame + 1)) : p->gop_size,
-			p->num_b_frame, p->i_frm_ctrl_mode, p->gop_ctrl);
+	mfc_debug(2, "I frame interval: %d, (P: %d, B: %d), ctrl mode: %d\n",
+			p->i_frm_ctrl, p->gop_size,
+			p->num_b_frame, p->i_frm_ctrl_mode);
 
 	/* pictype : IDR period, number of B */
 	reg = MFC_CORE_RAW_READL(MFC_REG_E_GOP_CONFIG);
@@ -251,9 +242,9 @@ static void __mfc_set_enc_params(struct mfc_core *core, struct mfc_ctx *ctx)
 	/* multi-slice MB number or bit size */
 	enc->slice_mode = p->slice_mode;
 
-	if (p->slice_mode == V4L2_MPEG_VIDEO_MULTI_SICE_MODE_MAX_MB) {
+	if (p->slice_mode == V4L2_MPEG_VIDEO_MULTI_SLICE_MODE_MAX_MB) {
 		enc->slice_size_mb = p->slice_mb;
-	} else if ((p->slice_mode == V4L2_MPEG_VIDEO_MULTI_SICE_MODE_MAX_BYTES) ||
+	} else if ((p->slice_mode == V4L2_MPEG_VIDEO_MULTI_SLICE_MODE_MAX_BYTES) ||
 			(p->slice_mode == V4L2_MPEG_VIDEO_MULTI_SLICE_MODE_MAX_FIXED_BYTES)){
 		enc->slice_size_bits = p->slice_bit;
 	} else if (p->slice_mode == V4L2_MPEG_VIDEO_MULTI_SLICE_MODE_MAX_MB_ROW) {
@@ -292,7 +283,7 @@ static void __mfc_set_enc_params(struct mfc_core *core, struct mfc_ctx *ctx)
 	mfc_clear_bits(reg, 0x1, 9);
 	/* Disable parallel processing if nal_q_parallel_disable was set */
 	mfc_clear_bits(reg, 0x1, 18);
-	if (dev->debugfs.nal_q_parallel_disable)
+	if (nal_q_parallel_disable)
 		mfc_set_bits(reg, 0x1, 18, 0x1);
 
 	mfc_clear_set_bits(reg, 0x3, 7, enc->sbwc_option);
@@ -305,15 +296,12 @@ static void __mfc_set_enc_params(struct mfc_core *core, struct mfc_ctx *ctx)
 		else if (ctx->sbwcl_ratio == 75 || ctx->sbwcl_ratio == 80)
 			mfc_clear_set_bits(reg, 0x3, 24, 2);
 	}
-
-#if IS_ENABLED(CONFIG_MFC_USES_OTF)
 	/* GDC-MFC vOTF enable */
 	mfc_clear_bits(reg, 0x1, 26);
 	if (ctx->gdc_votf && core->has_gdc_votf && core->has_mfc_votf) {
 		mfc_set_bits(reg, 0x1, 26, 0x1);
 		mfc_debug(2, "[vOTF] GDC-MFC vOTF is enabled\n");
 	}
-#endif
 
 	MFC_CORE_RAW_WRITEL(reg, MFC_REG_E_ENC_OPTIONS);
 
@@ -353,12 +341,9 @@ static void __mfc_set_enc_params(struct mfc_core *core, struct mfc_ctx *ctx)
 	MFC_CORE_RAW_WRITEL(reg, MFC_REG_E_RC_CONFIG);
 
 	/*
-	 * Delta value for framerate is timestamp(ms * 10) diff.
-	 * ex) 30fps: 333, 60fps: 166
-	 * Resolution unit is most sophisticated value
-	 * that can be determined within 16bit.
-	 * F/W calculates fps through resolution / delta.
-	 * ex) 10000 / 166 = 60fps
+	 * frame rate
+	 * delta is timestamp diff
+	 * ex) 30fps: 33, 60fps: 16
 	 */
 	p->rc_frame_delta = p->rc_framerate_res / p->rc_framerate;
 	reg = MFC_CORE_RAW_READL(MFC_REG_E_RC_FRAME_RATE);
@@ -526,7 +511,7 @@ static void __mfc_set_enc_params_h264(struct mfc_core *core,
 
 	mfc_debug_enter();
 
-	if (IS_8K_PERF(ctx) || (OVER_UHD_RES(ctx) && p->rc_framerate > 45)) {
+	if (IS_8K_RES(ctx) || (OVER_UHD_RES(ctx) && p->rc_framerate > 45)) {
 		p->num_refs_for_p = 1;
 		mfc_debug(2, "forcely use 1-ref frame for 8K or 4K %d fps\n", p->rc_framerate);
 	}
@@ -620,8 +605,6 @@ static void __mfc_set_enc_params_h264(struct mfc_core *core,
 	}
 	/* VUI parameter disable */
 	mfc_clear_set_bits(reg, 0x1, 30, p_264->vui_enable);
-	/* Timing info */
-	mfc_set_bits(reg, 0x1, 31, 0x1);
 	MFC_CORE_RAW_WRITEL(reg, MFC_REG_E_H264_OPTIONS);
 
 	/* cropped height */
@@ -834,7 +817,7 @@ static void __mfc_set_enc_params_h263(struct mfc_core *core,
 	mfc_debug_enter();
 
 	/* For H.263 only 8 bit is used and maximum value can be 0xFF */
-	p->rc_framerate_res = 255;
+	p->rc_framerate_res = 100;
 	__mfc_set_enc_params(core, ctx);
 
 	/* set gop_size with I_FRM_CTRL mode */
@@ -1192,7 +1175,7 @@ static void __mfc_set_enc_params_hevc(struct mfc_core *core,
 
 	mfc_debug_enter();
 
-	if (IS_8K_PERF(ctx) || (OVER_UHD_RES(ctx) && p->rc_framerate > 45)) {
+	if (IS_8K_RES(ctx) || (OVER_UHD_RES(ctx) && p->rc_framerate > 45)) {
 		p->num_refs_for_p = 1;
 		mfc_debug(2, "forcely use 1-ref frame for 8K or 4K %d fps\n", p->rc_framerate);
 	}
@@ -1237,8 +1220,8 @@ static void __mfc_set_enc_params_hevc(struct mfc_core *core,
 	}
 	MFC_CORE_RAW_WRITEL(reg, MFC_REG_E_PICTURE_PROFILE);
 
-	reg = MFC_CORE_RAW_READL(MFC_REG_E_HEVC_OPTIONS);
 	/* max partition depth */
+	reg = MFC_CORE_RAW_READL(MFC_REG_E_HEVC_OPTIONS);
 	mfc_clear_set_bits(reg, 0x3, 0, p_hevc->max_partition_depth);
 	/* if num_refs_for_p is 2, the performance falls by half */
 	mfc_clear_set_bits(reg, 0x1, 2, (p->num_refs_for_p - 1));
@@ -1268,12 +1251,6 @@ static void __mfc_set_enc_params_hevc(struct mfc_core *core,
 	/* 30bit is 32x32 transform. If it is enabled, the performance falls by half */
 	mfc_clear_bits(reg, 0x1, 30);
 	MFC_CORE_RAW_WRITEL(reg, MFC_REG_E_HEVC_OPTIONS);
-
-	reg = MFC_CORE_RAW_READL(MFC_REG_E_HEVC_OPTIONS_2);
-	/* Timing info */
-	mfc_set_bits(reg, 0x1, 2, 0x1);
-	MFC_CORE_RAW_WRITEL(reg, MFC_REG_E_HEVC_OPTIONS_2);
-
 	/* refresh period */
 	reg = MFC_CORE_RAW_READL(MFC_REG_E_HEVC_REFRESH_PERIOD);
 	mfc_clear_set_bits(reg, 0xFFFF, 0, p_hevc->refreshperiod);

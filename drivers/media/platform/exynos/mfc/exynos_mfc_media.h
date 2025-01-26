@@ -1,5 +1,5 @@
 /*
- * drivers/media/platform/exynos/mfc/mfc_media.h
+ * drivers/media/platform/exynos/mfc/exynos_mfc_media.h
  *
  * Copyright (c) 2016 Samsung Electronics Co., Ltd.
  *		http://www.samsung.com/
@@ -10,8 +10,8 @@
  * (at your option) any later version.
  */
 
-#ifndef __MFC_MEDIA_H
-#define __MFC_MEDIA_H __FILE__
+#ifndef __EXYNOS_MFC_MEDIA_H
+#define __EXYNOS_MFC_MEDIA_H __FILE__
 
 #include <linux/videodev2_exynos_media.h>
 
@@ -147,9 +147,6 @@ enum v4l2_mpeg_mfc51_video_frame_type {
 					(V4L2_CID_MPEG_MFC_BASE + 32)
 #define V4L2_CID_MPEG_VIDEO_FRAME_ERROR_TYPE\
 					(V4L2_CID_MPEG_MFC_BASE + 33)
-/* AVERAGE_QP: 34 */
-#define V4L2_CID_MPEG_VIDEO_GOP_CTRL			\
-					(V4L2_CID_MPEG_MFC_BASE + 35)
 
 #define V4L2_CID_MPEG_VIDEO_CHROMA_QP_OFFSET_CB		\
 					(V4L2_CID_MPEG_MFC_BASE + 38)
@@ -281,15 +278,8 @@ enum v4l2_mpeg_mfc51_video_frame_type {
 #define V4L2_CID_MPEG_MFC_HDR_USER_SHARED_HANDLE	\
 					(V4L2_CID_MPEG_MFC_BASE + 109)
 
-/*
- * CIDs for HEVC encoding.
- * Even though it was merged to mainline, do not use it for HAL code compatibility.
- * HEVC_MIN_QP + 110
- * HEVC_MAX_QP + 111
- * HEVC_I_FRAME_QP + 112
- * HEVC_P_FRAME_QP + 113
- * HEVC_B_FRAME_QP + 114
- */
+/* CIDs for HEVC encoding. Number gaps are for compatibility */
+
 #define V4L2_CID_MPEG_VIDEO_HEVC_HIERARCHICAL_QP_ENABLE \
 					(V4L2_CID_MPEG_MFC_BASE + 115)
 #define V4L2_CID_MPEG_VIDEO_HEVC_HIERARCHICAL_CODING_TYPE       \
@@ -424,6 +414,8 @@ enum v4l2_mpeg_mfc51_video_frame_type {
 					(V4L2_CID_MPEG_MFC_BASE + 183)
 #define V4L2_CID_MPEG_VIDEO_UNCOMP_FMT				\
 					(V4L2_CID_MPEG_MFC_BASE + 184)
+#define V4L2_CID_MPEG_VIDEO_SKIP_LAZY_UNMAP				\
+					(V4L2_CID_MPEG_MFC_BASE + 185)
 
 /* CIDs for new common interface */
 #define V4L2_CID_MPEG_VIDEO_ROI_CONTROL				\
@@ -516,7 +508,6 @@ enum v4l2_mpeg_mfc51_video_frame_type {
 					(V4L2_CID_MPEG_MFC_BASE + 231)
 #define V4L2_CID_MPEG_VIDEO_STATIC_INFO_ENABLE			\
 					(V4L2_CID_MPEG_MFC_BASE + 232)
-/* MV_SEARCH_MODE: 233 ~ 237 */
 
 /* CID for AV1 decoding interface */
 #define V4L2_CID_MPEG_MFC_AV1_FILM_GRAIN_USER_SHARED_HANDLE	\
@@ -531,4 +522,4 @@ enum v4l2_mpeg_mfc51_video_frame_type {
 #define V4L2_CID_MPEG_VIDEO_BPG_HEADER_SIZE			\
 					(V4L2_CID_MPEG_MFC_BASE + 252)
 
-#endif /* __MFC_MEDIA_H */
+#endif /* __EXYNOS_MFC_MEDIA_H */

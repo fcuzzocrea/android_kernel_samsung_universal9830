@@ -10,8 +10,6 @@
  * (at your option) any later version.
  */
 
-#if IS_ENABLED(CONFIG_MFC_USES_OTF)
-
 #include <linux/delay.h>
 
 #include "mfc_rm.h"
@@ -34,7 +32,7 @@ static struct mfc_fmt *__mfc_core_otf_find_hwfc_format(struct mfc_dev *dev, unsi
 
 	mfc_dev_debug_enter();
 
-	for (i = 0; i < HWFC_NUM_FORMATS; i++) {
+	for (i = 0; i < NUM_FORMATS; i++) {
 		if (enc_hwfc_formats[i].fourcc == pixelformat)
 			return (struct mfc_fmt *)&enc_hwfc_formats[i];
 	}
@@ -287,7 +285,7 @@ int mfc_core_otf_create(struct mfc_ctx *ctx)
 		return -EINVAL;
 	}
 
-	if (dev->debugfs.otf_dump) {
+	if (otf_dump) {
 		/* It is for debugging. Do not return error */
 		if (mfc_otf_alloc_stream_buf(ctx)) {
 			mfc_ctx_err("[OTF] stream buffer allocation failed\n");
@@ -489,7 +487,7 @@ int mfc_core_otf_run_enc_init(struct mfc_core *core, struct mfc_ctx *ctx)
 	mfc_core_set_enc_stride(core, ctx);
 	mfc_clean_core_ctx_int_flags(core_ctx);
 
-	if (dev->debugfs.reg_test && !__check_disable_header_gen(dev)) {
+	if (reg_test && !__check_disable_header_gen(dev)) {
 #if IS_ENABLED(CONFIG_VIDEO_EXYNOS_TSMUX)
 		packet_param.time_stamp = 0;
 		ret = tsmux_packetize(&packet_param);
@@ -534,7 +532,7 @@ int mfc_core_otf_run_enc_frame(struct mfc_core *core, struct mfc_ctx *ctx)
 
 	mfc_core_otf_set_frame_addr(core, ctx, raw->num_planes);
 	mfc_core_otf_set_stream_size(core, ctx, raw->total_plane_size);
-	if (!(core->dev->debugfs.feature_option & MFC_OPTION_OTF_PATH_TEST_ENABLE)) {
+	if (!(feature_option & MFC_OPTION_OTF_PATH_TEST_ENABLE)) {
 		if (core->has_dpu_votf && core->has_mfc_votf)
 			mfc_core_otf_set_votf_index(core, ctx, handle->otf_job_id);
 		else if (core->has_hwfc)
@@ -550,7 +548,7 @@ int mfc_core_otf_run_enc_frame(struct mfc_core *core, struct mfc_ctx *ctx)
 
 	/* Change timestamp usec -> nsec */
 	mfc_qos_update_last_framerate(ctx, handle->otf_time_stamp * 1000);
-	mfc_qos_update_framerate(ctx);
+	mfc_qos_update_framerate(ctx, 0);
 	mfc_rm_qos_control(ctx, MFC_QOS_TRIGGER);
 
 	/* Set stream buffer size to handle buffer full */
@@ -660,7 +658,7 @@ int mfc_core_otf_handle_stream(struct mfc_core *core, struct mfc_ctx *ctx)
 		enc_ret = -HWFC_ERR_MFC;
 	}
 
-	if (core->dev->debugfs.otf_dump && !ctx->is_drm) {
+	if (otf_dump && !ctx->is_drm) {
 		buf = &debug->stream_buf[debug->frame_cnt];
 		debug->stream_size[debug->frame_cnt] = strm_size;
 		debug->frame_cnt++;
@@ -833,7 +831,7 @@ int mfc_hwfc_encode(int buf_index, int job_id,
 		return -HWFC_ERR_MFC_NOT_PREPARED;
 	}
 
-	core = mfc_get_main_core(dev, ctx);
+	core = mfc_get_master_core(dev, ctx);
 	if (!core) {
 		mfc_ctx_err("[OTF] Tehre is no mater core\n");
 		return -HWFC_ERR_MFC_NOT_PREPARED;
@@ -848,7 +846,7 @@ int mfc_hwfc_encode(int buf_index, int job_id,
 
 #if IS_ENABLED(CONFIG_VIDEO_EXYNOS_TSMUX)
 	packet_param.time_stamp = param->time_stamp;
-	if (dev->debugfs.debug_ts == 1)
+	if (debug_ts == 1)
 		mfc_ctx_info("[OTF][TS] timestamp: %llu\n", param->time_stamp);
 	if (tsmux_packetize(&packet_param)) {
 		mfc_err("[OTF] packetize failed\n");
@@ -877,4 +875,3 @@ int mfc_hwfc_encode(int buf_index, int job_id,
 }
 #endif
 
-#endif

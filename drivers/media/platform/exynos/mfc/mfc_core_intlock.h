@@ -15,7 +15,6 @@
 
 #include "mfc_common.h"
 
-void mfc_clear_core_intlock(struct mfc_ctx *ctx);
 int mfc_get_core_intlock(struct mfc_core_ctx *core_ctx);
 void mfc_release_core_intlock(struct mfc_core_ctx *core_ctx);
 

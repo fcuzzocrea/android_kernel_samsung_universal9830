@@ -24,7 +24,7 @@
  * 2       4       6       8       0
  * |B......BG......GR......RA......A|
  */
-static struct mfc_fmt enc_hwfc_formats[] = {
+struct mfc_fmt enc_hwfc_formats[] = {
 	{
 		.name = "4:2:0 2 Planes",
 		.fourcc = V4L2_PIX_FMT_NV12M,
@@ -59,6 +59,6 @@ static struct mfc_fmt enc_hwfc_formats[] = {
 	},
 };
 
-#define HWFC_NUM_FORMATS ARRAY_SIZE(enc_hwfc_formats)
+#define NUM_FORMATS ARRAY_SIZE(enc_hwfc_formats)
 
 #endif /* __MFC_HWFC_INTERNAL_H */

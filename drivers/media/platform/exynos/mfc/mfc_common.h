@@ -13,21 +13,20 @@
 #ifndef __MFC_COMMON_H
 #define __MFC_COMMON_H __FILE__
 
-#include <linux/exynos_iovmm.h>
 #include <linux/io.h>
 #include <linux/slab.h>
 #include <linux/sched/clock.h>
-#include <linux/ion_exynos.h>
 #include <media/videobuf2-dma-sg.h>
 #include <asm/cacheflush.h>
+#include <soc/samsung/debug-snapshot.h>
 
 #include "mfc_data_struct.h"
 #include "mfc_regs.h"
 #include "mfc_macros.h"
 #include "mfc_debug.h"
-#include "mfc_media.h"
+#include "exynos_mfc_media.h"
 
-#define MFC_DRIVER_INFO		210126
+#define MFC_DRIVER_INFO		200429
 
 #define MFC_MAX_REF_BUFS	2
 #define MFC_FRAME_PLANES	2
@@ -48,6 +47,8 @@
 #define MFC_ENC_DEFAULT_CORE	0
 #define MFC_SURPLUS_CORE	1
 
+/* MFC base address */
+#define MFC_BASE_ADDR		0x10000000
 /* Interrupt timeout */
 #define MFC_INT_TIMEOUT		4000
 /* Interrupt short timeout */
@@ -61,13 +62,6 @@
 /* Interrupt timeout count*/
 #define MFC_INT_TIMEOUT_CNT	2
 
-/* The MAX I frame interval for boosting is 2sec */
-#define MFC_BOOST_TIME			(2)
-/* The boost mode is not applied during first 60frames */
-#define MFC_BOOST_SKIP_FRAME		(60)
-/* The boost mode is maintained at least 20msec */
-#define MFC_BOOST_OFF_TIME		((MFC_BOOST_TIME * NSEC_PER_SEC) - (20000 * NSEC_PER_USEC))
-
 /*
  * This value guarantees 299.4msec ~ 2.25sec according to MFC clock (668MHz ~ 89MHz)
  * releated with MFC_REG_TIMEOUT_VALUE
@@ -76,12 +70,11 @@
 
 #define NUM_MPEG4_LF_BUF	2
 
-#define FRAME_RATE_RESOLUTION	10000
+#define FRAME_RATE_RESOLUTION	1000
 
 #define DEFAULT_TAG		(0xE05)
 #define IGNORE_TAG		(0xD5C) /* ex) encoder DRC */
 #define HEADER_TAG		(0xC5D)
-#define UNUSED_TAG		(-1)
 
 #define MFC_NO_INSTANCE_SET	-1
 
@@ -210,27 +203,21 @@
 #define IS_LV51_MB(mb)		(((mb) > LV51_MB_MIN) && ((mb) <= LV51_MB_MAX))
 #define IS_LV60_MB(mb)		(((mb) > LV51_MB_MAX) && ((mb) <= LV60_MB_MAX))
 
-/* 8K resolution (include 21:9 7680 x 3296) */
-#define MFC_8K_RES		(7680 * 3200)
+/* 8K resoluition */
+#define MFC_8K_RES		(7680 * 4320)
 #define IS_8K_RES(ctx)		(((ctx)->crop_width * (ctx)->crop_height) >= MFC_8K_RES)
-/* For max h/w performance */
-#define IS_8K_PERF(ctx)		(((ctx)->crop_width * (ctx)->crop_height) >= (MFC_8K_RES / 2))
 
-/* 4K resolution */
+/* 4K resoluition */
 #define MFC_4K_RES		(4096 * 2176)
 #define UNDER_4K_RES(ctx)	(((ctx)->crop_width * (ctx)->crop_height) < MFC_4K_RES)
 
-/* UHD resolution (include 21:9 3840 x 1644) */
-#define MFC_UHD_RES		(3840 * 1600)
+/* UHD resolution */
+#define MFC_UHD_RES		(3840 * 2160)
 #define OVER_UHD_RES(ctx)	(((ctx)->crop_width * (ctx)->crop_height) >= MFC_UHD_RES)
 
-/* FHD resolution */
+/* FHD resoluition */
 #define MFC_FHD_RES		(1920 * 1088)
-#define MFC_FHD_RES_MB		(((1920 + 15) / 16) * ((1088 + 15) / 16))
 #define UNDER_FHD_RES(ctx)	(((ctx)->crop_width * (ctx)->crop_height) <= MFC_FHD_RES)
-
-/* HD resolution */
-#define MFC_HD_RES_MB		(((1280 + 15) / 16) * ((720 + 15) / 16))
 
 #define IS_BLACKBAR_OFF(ctx)	((ctx)->crop_height > 2160)
 #define IS_SUPER64_BFRAME(ctx, size, type)	((ctx->is_10bit) && (size >= 2) && (type == 3))
@@ -267,7 +254,6 @@
 /* new C2_INTERFACE: DISPLAY_DELAY, FRAME_POC */
 #define	DEC_SET_C2_INTERFACE		(1 << 6)
 #define DEC_SET_FRAME_ERR_TYPE		(1 << 7)
-#define DEC_SET_OPERATING_FPS		(1 << 8)
 #define DEC_SET_BUF_FLAG_CTRL		(1 << 16)
 
 /* Extra information for Encoder */
@@ -289,15 +275,11 @@
 #define	ENC_SET_CHROMA_QP_CONTROL	(1 << 15)
 #define ENC_SET_BUF_FLAG_CTRL		(1 << 16)
 #define ENC_SET_GDC_VOTF		(1 << 17)
-#define ENC_SET_OPERATING_FPS		(1 << 18)
-#define ENC_SET_AVERAGE_QP		(1 << 19)
-#define ENC_SET_MV_SEARCH_MODE		(1 << 20)
-#define ENC_SET_GOP_CTRL		(1 << 21)
 
 #define MFC_FEATURE_SUPPORT(dev, f)	((f).support && ((dev)->fw_date >= (f).version))
 
 /* Low memory check */
-#define IS_LOW_MEM			(totalram_pages <= ((SZ_1G + SZ_512M) >> PAGE_SHIFT))
-#define SZ_600M				(600 * 1024 * 1024)
+#define IS_LOW_MEM			(totalram_pages() <= ((SZ_1G + SZ_512M) >> PAGE_SHIFT))
+#define SZ_600M				(6 * 1024 * 1024)
 
 #endif /* __MFC_COMMON_H */

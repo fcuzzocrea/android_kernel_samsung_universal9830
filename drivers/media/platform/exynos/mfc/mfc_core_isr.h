@@ -17,8 +17,6 @@
 
 #include "mfc_common.h"
 
-#include "mfc_rm.h"
-
 #include "mfc_utils.h"
 
 irqreturn_t mfc_core_top_half_irq(int irq, void *priv);
@@ -70,10 +68,9 @@ static inline void mfc_handle_force_change_status(struct mfc_core_ctx *core_ctx)
 	if (core_ctx->state != MFCINST_ABORT && core_ctx->state != MFCINST_HEAD_PARSED &&
 			core_ctx->state != MFCINST_RES_CHANGE_FLUSH) {
 		mfc_change_state(core_ctx, MFCINST_RUNNING);
-		if (IS_SWITCH_SINGLE_MODE(ctx) && (ctx->stream_op_mode == MFC_OP_TWO_MODE2)) {
-			mfc_rm_set_core_num(ctx, MFC_DEC_DEFAULT_CORE);
-			mfc_change_op_mode(ctx, ctx->stream_op_mode);
-			mfc_debug(2, "[2CORE] reset multi core op_mode: %d\n", ctx->op_mode);
+		if (IS_SWITCH_SINGLE_MODE(ctx)) {
+			mfc_change_op_mode(ctx, MFC_OP_TWO_MODE2);
+			mfc_debug(2, "[2CORE] reset 2core op_mode: %d\n", ctx->op_mode);
 		}
 	}
 }

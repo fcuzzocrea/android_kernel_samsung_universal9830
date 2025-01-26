@@ -17,24 +17,17 @@
 #include <linux/of_platform.h>
 #include <linux/proc_fs.h>
 #include <linux/of.h>
-#include <linux/smc.h>
+#include <soc/samsung/exynos-smc.h>
 #include <linux/debugfs.h>
 #include <linux/seq_file.h>
 #include <linux/poll.h>
-#if IS_ENABLED(CONFIG_EXYNOS_THERMAL_V2)
-#include <soc/samsung/tmu.h>
-#include <linux/isp_cooling.h>
-#endif
 
 #include "mfc_common.h"
 
 #include "mfc_dec_v4l2.h"
-#include "mfc_dec_internal.h"
 #include "mfc_enc_v4l2.h"
-#include "mfc_enc_internal.h"
 #include "mfc_rm.h"
 
-#include "mfc_core_hwlock.h"
 #include "mfc_core_run.h"
 #include "mfc_core_otf.h"
 #include "mfc_debugfs.h"
@@ -77,6 +70,16 @@ static struct proc_dir_entry *mfc_proc_entry;
 #define MFC_PROC_FW_STATUS		"fw_status"
 #endif
 
+#define DEF_DEC_SRC_FMT	9
+#define DEF_DEC_DST_FMT	5
+
+#define DEF_ENC_SRC_FMT	5
+#define DEF_ENC_DST_FMT	13
+
+extern struct mfc_ctrls_ops decoder_ctrls_ops;
+extern struct vb2_ops mfc_dec_qops;
+extern struct mfc_fmt dec_formats[];
+
 void mfc_butler_worker(struct work_struct *work)
 {
 	struct mfc_dev *dev;
@@ -111,7 +114,6 @@ static void __mfc_deinit_dec_ctx(struct mfc_ctx *ctx)
 
 	mfc_delete_queue(&ctx->src_buf_ready_queue);
 	mfc_delete_queue(&ctx->dst_buf_queue);
-	mfc_delete_queue(&ctx->dst_buf_err_queue);
 	mfc_delete_queue(&ctx->src_buf_nal_queue);
 	mfc_delete_queue(&ctx->dst_buf_nal_queue);
 	mfc_delete_queue(&ctx->meminfo_inbuf_q);
@@ -144,12 +146,11 @@ static int __mfc_init_dec_ctx(struct mfc_ctx *ctx)
 	}
 	ctx->dec_priv = dec;
 
-	ctx->subcore_inst_no = MFC_NO_INSTANCE_SET;
+	ctx->slave_inst_no = MFC_NO_INSTANCE_SET;
 	ctx->curr_src_index = -1;
 
 	mfc_create_queue(&ctx->src_buf_ready_queue);
 	mfc_create_queue(&ctx->dst_buf_queue);
-	mfc_create_queue(&ctx->dst_buf_err_queue);
 	mfc_create_queue(&ctx->src_buf_nal_queue);
 	mfc_create_queue(&ctx->dst_buf_nal_queue);
 	mfc_create_queue(&ctx->meminfo_inbuf_q);
@@ -166,14 +167,14 @@ static int __mfc_init_dec_ctx(struct mfc_ctx *ctx)
 
 	ctx->type = MFCINST_DECODER;
 	ctx->c_ops = &decoder_ctrls_ops;
+	ctx->src_fmt = &dec_formats[DEF_DEC_SRC_FMT];
+	ctx->dst_fmt = &dec_formats[DEF_DEC_DST_FMT];
 
-	mfc_dec_set_default_format(ctx);
 	mfc_qos_reset_framerate(ctx);
 
 	ctx->qos_ratio = 100;
 	INIT_LIST_HEAD(&ctx->bitrate_list);
-	INIT_LIST_HEAD(&ctx->src_ts.ts_list);
-	INIT_LIST_HEAD(&ctx->dst_ts.ts_list);
+	INIT_LIST_HEAD(&ctx->ts_list);
 
 	dec->display_delay = -1;
 	dec->is_interlaced = 0;
@@ -190,11 +191,11 @@ static int __mfc_init_dec_ctx(struct mfc_ctx *ctx)
 	dec->dpb_table_used = 0;
 	dec->sh_handle_dpb.fd = -1;
 	mutex_init(&dec->dpb_mutex);
+	mutex_init(&ctx->cpb_mutex);
 
 	mfc_init_dpb_table(ctx);
 
-	dec->sh_handle_dpb.data_size = sizeof(struct dec_dpb_ref_info) * MFC_MAX_BUFFERS;
-	dec->ref_info = vmalloc(dec->sh_handle_dpb.data_size);
+	dec->ref_info = vmalloc(sizeof(struct dec_dpb_ref_info) * MFC_MAX_BUFFERS);
 	if (!dec->ref_info) {
 		mfc_ctx_err("failed to allocate decoder information data\n");
 		ret = -ENOMEM;
@@ -238,6 +239,10 @@ fail_dec_init:
 	__mfc_deinit_dec_ctx(ctx);
 	return ret;
 }
+
+extern struct mfc_ctrls_ops encoder_ctrls_ops;
+extern struct vb2_ops mfc_enc_qops;
+extern struct mfc_fmt enc_formats[];
 
 static void __mfc_deinit_enc_ctx(struct mfc_ctx *ctx)
 {
@@ -288,8 +293,9 @@ static int __mfc_init_enc_ctx(struct mfc_ctx *ctx)
 
 	ctx->type = MFCINST_ENCODER;
 	ctx->c_ops = &encoder_ctrls_ops;
+	ctx->src_fmt = &enc_formats[DEF_ENC_SRC_FMT];
+	ctx->dst_fmt = &enc_formats[DEF_ENC_DST_FMT];
 
-	mfc_enc_set_default_format(ctx);
 	mfc_qos_reset_framerate(ctx);
 
 	ctx->qos_ratio = 100;
@@ -299,14 +305,11 @@ static int __mfc_init_enc_ctx(struct mfc_ctx *ctx)
 	p->ivf_header_disable = 1;
 
 	INIT_LIST_HEAD(&ctx->bitrate_list);
-	INIT_LIST_HEAD(&ctx->src_ts.ts_list);
+	INIT_LIST_HEAD(&ctx->ts_list);
 
 	enc->sh_handle_svc.fd = -1;
 	enc->sh_handle_roi.fd = -1;
 	enc->sh_handle_hdr.fd = -1;
-	enc->sh_handle_svc.data_size = sizeof(struct temporal_layer_info);
-	enc->sh_handle_roi.data_size = sizeof(struct mfc_enc_roi_info);
-	enc->sh_handle_hdr.data_size = sizeof(struct hdr10_plus_meta) * MFC_MAX_BUFFERS;
 
 	/* Init videobuf2 queue for OUTPUT */
 	ctx->vq_src.type = V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE;
@@ -351,7 +354,6 @@ static int mfc_open(struct file *file)
 	int i, ret = 0;
 	enum mfc_node_type node;
 	struct video_device *vdev = NULL;
-	unsigned long total_mb = 0, max_hw_mb = 0;
 
 	if (!dev) {
 		mfc_pr_err("no mfc device to run\n");
@@ -362,43 +364,6 @@ static int mfc_open(struct file *file)
 
 	if (mutex_lock_interruptible(&dev->mfc_mutex))
 		return -ERESTARTSYS;
-
-	/* mfc_open() of spec over is failed */
-	for (i = 0; i < dev->num_core; i++)
-		max_hw_mb += dev->core[i]->core_pdata->max_hw_mb;
-	for (i = 0; i < MFC_NUM_CONTEXTS; i++) {
-		if (!dev->ctx[i])
-			continue;
-		total_mb += dev->ctx[i]->weighted_mb;
-		mfc_dev_debug(3, "-ctx[%d] %s %s %s %dx%d %dfps (mb: %lld) core%d op_mode%d\n",
-				dev->ctx[i]->num,
-				dev->ctx[i]->type == MFCINST_DECODER ? "DEC" : "ENC",
-				dev->ctx[i]->src_fmt->name,
-				dev->ctx[i]->dst_fmt->name,
-				dev->ctx[i]->crop_width, dev->ctx[i]->crop_height,
-				dev->ctx[i]->framerate / 1000,
-				dev->ctx[i]->weighted_mb,
-				dev->ctx[i]->op_core_num[MFC_CORE_MAIN],
-				dev->ctx[i]->op_mode);
-	}
-	if (total_mb >= max_hw_mb) {
-		mfc_dev_info("[RM] now MFC work with full spec(mb: %d / %d)\n",
-				total_mb, max_hw_mb);
-		for (i = 0; i < MFC_NUM_CONTEXTS; i++) {
-			if (!dev->ctx[i])
-				continue;
-			mfc_dev_info("-ctx[%d] %s %s %s %dx%d %dfps (mb: %lld) core%d op_mode%d\n",
-					dev->ctx[i]->num,
-					dev->ctx[i]->type == MFCINST_DECODER ? "DEC" : "ENC",
-					dev->ctx[i]->src_fmt->name,
-					dev->ctx[i]->dst_fmt->name,
-					dev->ctx[i]->crop_width, dev->ctx[i]->crop_height,
-					dev->ctx[i]->framerate / 1000,
-					dev->ctx[i]->weighted_mb,
-					dev->ctx[i]->op_core_num[MFC_CORE_MAIN],
-					dev->ctx[i]->op_mode);
-		}
-	}
 
 	node = mfc_get_node_type(file);
 	if (node == MFCNODE_INVALID) {
@@ -466,14 +431,10 @@ static int mfc_open(struct file *file)
 	spin_lock_init(&ctx->buf_queue_lock);
 	spin_lock_init(&ctx->meminfo_queue_lock);
 	spin_lock_init(&ctx->corelock.lock);
-	spin_lock_init(&ctx->src_ts.ts_lock);
-	spin_lock_init(&ctx->dst_ts.ts_lock);
 	mutex_init(&ctx->intlock.core_mutex);
-	mutex_init(&ctx->op_mode_mutex);
+	init_waitqueue_head(&ctx->migrate_wq);
 	init_waitqueue_head(&ctx->corelock.wq);
 	init_waitqueue_head(&ctx->corelock.migrate_wq);
-
-	mfc_ctx_change_idle_mode(ctx, MFC_IDLE_MODE_NONE);
 
 	if (mfc_is_decoder_node(node))
 		ret = __mfc_init_dec_ctx(ctx);
@@ -484,7 +445,7 @@ static int mfc_open(struct file *file)
 
 	if (dev->num_inst == 1) {
 		/* regression test val */
-		if (dev->debugfs.regression_option) {
+		if (regression_option) {
 			dev->regression_val = vmalloc(SZ_1M);
 			if (!dev->regression_val)
 				mfc_ctx_err("[MFCREGRESSION] failed to allocate regression result data\n");
@@ -493,8 +454,6 @@ static int mfc_open(struct file *file)
 		/* all of the ctx list */
 		INIT_LIST_HEAD(&dev->ctx_list);
 		spin_lock_init(&dev->ctx_list_lock);
-		/* idle mode */
-		spin_lock_init(&dev->idle_bits_lock);
 	}
 
 	ret = call_cop(ctx, init_ctx_ctrls, ctx);
@@ -535,14 +494,12 @@ static int mfc_open(struct file *file)
 		goto err_drm_start;
 	}
 
-#if IS_ENABLED(CONFIG_MFC_USES_OTF)
 #if IS_ENABLED(CONFIG_VIDEO_EXYNOS_REPEATER)
 	if (mfc_is_encoder_otf_node(node)) {
 		ret = mfc_core_otf_create(ctx);
 		if (ret)
 			mfc_ctx_err("[OTF] otf_create failed\n");
 	}
-#endif
 #endif
 
 	trace_mfc_node_open(ctx->num, dev->num_inst, ctx->type, ctx->is_drm);
@@ -577,7 +534,7 @@ err_ctx_alloc:
 	dev->num_inst--;
 
 err_node_type:
-	mfc_dev_err("MFC driver open is failed [%d:%d]\n",
+	mfc_dev_info("MFC driver open is failed [%d:%d]\n",
 			dev->num_drm_inst, dev->num_inst);
 	mutex_unlock(&dev->mfc_mutex);
 
@@ -647,13 +604,11 @@ static int mfc_release(struct file *file)
 	else if (ctx->type == MFCINST_ENCODER)
 		__mfc_deinit_enc_ctx(ctx);
 
-#if IS_ENABLED(CONFIG_MFC_USES_OTF)
 #if IS_ENABLED(CONFIG_VIDEO_EXYNOS_REPEATER)
 	if (ctx->otf_handle) {
 		mfc_core_otf_deinit(ctx);
 		mfc_core_otf_destroy(ctx);
 	}
-#endif
 #endif
 
 	trace_mfc_node_close(ctx->num, dev->num_inst, ctx->type, ctx->is_drm);
@@ -827,16 +782,12 @@ static int __mfc_parse_dt(struct device_node *np, struct mfc_dev *mfc)
 	/* SBWC */
 	of_property_read_u32(np, "sbwc_dec_max_width", &pdata->sbwc_dec_max_width);
 	of_property_read_u32(np, "sbwc_dec_max_height", &pdata->sbwc_dec_max_height);
-	of_property_read_u32(np, "sbwc_dec_max_inst_num", &pdata->sbwc_dec_max_inst_num);
 
 	/* HDR10+ num max window */
 	of_property_read_u32(np, "max_hdr_win", &pdata->max_hdr_win);
 
 	/* HDR10+ num max window */
 	of_property_read_u32(np, "display_err_type", &pdata->display_err_type);
-
-	/* output buffer Q framerate */
-	of_property_read_u32(np, "display_framerate", &pdata->display_framerate);
 
 	/* Encoder default parameter */
 	of_property_read_u32(np, "enc_param_num", &pdata->enc_param_num);
@@ -917,8 +868,6 @@ static int __mfc_parse_dt(struct device_node *np, struct mfc_dev *mfc)
 			&pdata->qos_weight.weight_h264_hevc);
 	of_property_read_u32(np, "qos_weight_vp8_vp9",
 			&pdata->qos_weight.weight_vp8_vp9);
-	of_property_read_u32(np, "qos_weight_av1",
-			&pdata->qos_weight.weight_av1);
 	of_property_read_u32(np, "qos_weight_other_codec",
 			&pdata->qos_weight.weight_other_codec);
 	of_property_read_u32(np, "qos_weight_3plane",
@@ -949,6 +898,9 @@ static int __mfc_parse_dt(struct device_node *np, struct mfc_dev *mfc)
 
 	/* Core balance(%) for resource managing */
 	of_property_read_u32(np, "core_balance", &pdata->core_balance);
+
+	/* MFC IOVA threshold */
+	of_property_read_u32(np, "iova_threshold", &pdata->iova_threshold);
 
 	/* MFC IOVA threshold */
 	of_property_read_u32(np, "idle_clk_ctrl", &pdata->idle_clk_ctrl);
@@ -982,11 +934,14 @@ static struct video_device *__mfc_video_device_register(struct mfc_dev *dev,
 	vfd->lock = &dev->mfc_mutex;
 	vfd->v4l2_dev = &dev->v4l2_dev;
 	vfd->vfl_dir = VFL_DIR_M2M;
+	set_bit(V4L2_FL_QUIRK_INVERTED_CROP, &vfd->flags);
 	vfd->device_caps = V4L2_CAP_VIDEO_CAPTURE
 			| V4L2_CAP_VIDEO_OUTPUT
 			| V4L2_CAP_VIDEO_CAPTURE_MPLANE
 			| V4L2_CAP_VIDEO_OUTPUT_MPLANE
 			| V4L2_CAP_STREAMING;
+
+	snprintf(vfd->name, sizeof(vfd->name), "%s", vfd->name);
 
 	ret = video_register_device(vfd, VFL_TYPE_GRABBER, node_num);
 	if (ret) {
@@ -1000,37 +955,6 @@ static struct video_device *__mfc_video_device_register(struct mfc_dev *dev,
 
 	return vfd;
 }
-
-#if IS_ENABLED(CONFIG_EXYNOS_THERMAL_V2)
-#define TMU_UNLIMITED_FPS	60
-static int __mfc_tmu_notifier(struct notifier_block *nb, unsigned long state,
-				void *nb_data)
-{
-	struct mfc_dev *dev;
-	int fps = 0;
-
-	dev = container_of(nb, struct mfc_dev, tmu_nb);
-
-	if (state == ISP_THROTTLING) {
-		fps = isp_cooling_get_fps(0, *(unsigned long *)nb_data);
-
-		if (fps >= TMU_UNLIMITED_FPS) {
-			dev->tmu_fps = 0;
-			mfc_dev_info("[TMU] THROTTLING: Unlimited FPS (%d)\n", fps);
-		} else if (fps > 0) {
-			dev->tmu_fps = fps * 1000;
-			mfc_dev_info("[TMU] THROTTLING: Limited %d FPS\n", fps);
-		} else {
-			dev->tmu_fps = 0;
-			mfc_dev_err("[TMU] THROTTLING: Wrong %d FPS\n", fps);
-		}
-	} else {
-		mfc_dev_err("[TMU] Wrong TMU state %d\n", state);
-	}
-
-	return 0;
-}
-#endif
 
 /* MFC probe function */
 static int mfc_probe(struct platform_device *pdev)
@@ -1152,12 +1076,6 @@ static int mfc_probe(struct platform_device *pdev)
 	g_mfc_dev = dev;
 
 	mfc_init_debugfs(dev);
-
-#if IS_ENABLED(CONFIG_EXYNOS_THERMAL_V2)
-	dev->tmu_nb.notifier_call = __mfc_tmu_notifier;
-	exynos_tmu_isp_add_notifier(&dev->tmu_nb);
-#endif
-
 	__platform_driver_register(&mfc_core_driver, THIS_MODULE);
 	of_platform_populate(np, NULL, NULL, device);
 
@@ -1237,7 +1155,6 @@ static void mfc_shutdown(struct platform_device *pdev)
 			mfc_core_risc_off(core);
 			core->shutdown = 1;
 			mfc_clear_all_bits(&core->work_bits);
-			iovmm_deactivate(core->device);
 			mfc_core_err("core forcibly shutdown\n");
 		}
 	}
@@ -1249,69 +1166,13 @@ static void mfc_shutdown(struct platform_device *pdev)
 static int mfc_suspend(struct device *device)
 {
 	struct mfc_dev *dev = platform_get_drvdata(to_platform_device(device));
-	struct mfc_core *core[MFC_NUM_CORE];
-	int i, ret;
 
 	if (!dev) {
 		dev_err(device, "no mfc device to run\n");
 		return -EINVAL;
 	}
 
-	/*
-	 * Multi core mode instance can send sleep command
-	 * when there are no H/W operation both two core.
-	 */
-	for (i = 0; i < dev->num_core; i++) {
-		core[i] = dev->core[i];
-		if (!core[i]) {
-			dev_err(device, "no mfc core%d device to run\n", i);
-			return -EINVAL;
-		}
-
-		if (core[i]->num_inst == 0) {
-			core[i] = NULL;
-			continue;
-		}
-
-		mfc_dev_info("MFC%d will suspend\n", i);
-
-		ret = mfc_core_get_hwlock_dev(core[i]);
-		if (ret < 0) {
-			mfc_dev_err("Failed to get hwlock for MFC%d\n", i);
-			mfc_dev_err("dev:0x%lx, bits:0x%lx, owned:%d, wl:%d, trans:%d\n",
-					core[i]->hwlock.dev, core[i]->hwlock.bits,
-					core[i]->hwlock.owned_by_irq,
-					core[i]->hwlock.wl_count,
-					core[i]->hwlock.transfer_owner);
-			return -EBUSY;
-		}
-
-		if (!mfc_core_pm_get_pwr_ref_cnt(core[i])) {
-			mfc_dev_info("MFC%d power has not been turned on yet\n", i);
-			mfc_core_release_hwlock_dev(core[i]);
-			core[i] = NULL;
-			continue;
-		}
-	}
-
-	for (i = 0; i < dev->num_core; i++) {
-		if (core[i]) {
-			ret = mfc_core_run_sleep(core[i]);
-			if (ret) {
-				mfc_dev_err("Failed core_run_sleep for MFC%d\n", i);
-				return -EFAULT;
-			}
-
-			if (core[i]->has_llc && core[i]->llc_on_status) {
-				mfc_llc_flush(core[i]);
-				mfc_llc_disable(core[i]);
-			}
-
-			mfc_core_release_hwlock_dev(core[i]);
-
-			mfc_dev_info("MFC%d suspend is completed\n", i);
-		}
-	}
+	mfc_dev_debug(2, "MFC suspend will be handled by core driver\n");
 
 	return 0;
 }
@@ -1319,53 +1180,13 @@ static int mfc_suspend(struct device *device)
 static int mfc_resume(struct device *device)
 {
 	struct mfc_dev *dev = platform_get_drvdata(to_platform_device(device));
-	struct mfc_core *core;
-	struct mfc_core_ctx *core_ctx;
-	int i, ret;
 
 	if (!dev) {
 		dev_err(device, "no mfc device to run\n");
 		return -EINVAL;
 	}
 
-	for (i = 0; i < dev->num_core; i++) {
-		core = dev->core[i];
-		if (!core) {
-			dev_err(device, "no mfc core%d device to run\n", i);
-			return -EINVAL;
-		}
-
-		if (core->num_inst == 0)
-			continue;
-
-		mfc_dev_info("MFC%d will resume\n", i);
-
-		ret = mfc_core_get_hwlock_dev(core);
-		if (ret < 0) {
-			mfc_dev_err("Failed to get hwlock for MFC%d\n", i);
-			mfc_dev_err("dev:0x%lx, bits:0x%lx, owned:%d, wl:%d, trans:%d\n",
-					core->hwlock.dev, core->hwlock.bits,
-					core->hwlock.owned_by_irq,
-					core->hwlock.wl_count,
-					core->hwlock.transfer_owner);
-			return -EBUSY;
-		}
-
-		if (core->has_llc && (core->llc_on_status == 0))
-			mfc_llc_enable(core);
-
-		core_ctx = core->core_ctx[core->curr_core_ctx];
-
-		ret = mfc_core_run_wakeup(core);
-		if (ret) {
-			mfc_dev_err("Failed core_run_wakeup for MFC%d\n", i);
-			return -EFAULT;
-		}
-
-		mfc_core_release_hwlock_dev(core);
-
-		mfc_dev_info("MFC%d resume is completed\n", i);
-	}
+	mfc_dev_debug(2, "MFC resume will be handle by core driver\n");
 
 	return 0;
 }

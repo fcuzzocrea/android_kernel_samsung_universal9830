@@ -15,10 +15,6 @@
 
 #include "mfc_common.h"
 
-extern struct mfc_ctrls_ops encoder_ctrls_ops;
-extern struct vb2_ops mfc_enc_qops;
-void mfc_enc_set_default_format(struct mfc_ctx *ctx);
-
 /*
  * RGB encoding information to avoid confusion.
  *
@@ -28,7 +24,7 @@ void mfc_enc_set_default_format(struct mfc_ctx *ctx);
  * 2       4       6       8       0
  * |B......BG......GR......RA......A|
  */
-static struct mfc_fmt enc_formats[] = {
+struct mfc_fmt enc_formats[] = {
 	{
 		.name = "4:2:0 3 Planes Y/Cb/Cr",
 		.fourcc = V4L2_PIX_FMT_YUV420M,
@@ -343,9 +339,9 @@ static struct mfc_fmt enc_formats[] = {
 	},
 };
 
-#define ENC_NUM_FORMATS ARRAY_SIZE(enc_formats)
+#define NUM_FORMATS ARRAY_SIZE(enc_formats)
 
-static struct v4l2_queryctrl enc_controls[] = {
+static struct v4l2_queryctrl controls[] = {
 	{
 		.id = V4L2_CID_CACHEABLE,
 		.type = V4L2_CTRL_TYPE_INTEGER,
@@ -1022,8 +1018,8 @@ static struct v4l2_queryctrl enc_controls[] = {
 		.type = V4L2_CTRL_TYPE_INTEGER,
 		.name = "QoS ratio value",
 		.minimum = 20,
-		.maximum = INT_MAX,
-		.step = 1,
+		.maximum = 1000,
+		.step = 10,
 		.default_value = 100,
 	},
 	{
@@ -2521,18 +2517,9 @@ static struct v4l2_queryctrl enc_controls[] = {
 		.default_value = 0,
 	},
 	{
-		.id = V4L2_CID_MPEG_MFC51_VIDEO_FRAME_RATE,
-		.type = V4L2_CTRL_TYPE_INTEGER,
-		.name = "Frames per second in 1000x scale",
-		.minimum = 0,
-		.maximum = INT_MAX,
-		.step = 1,
-		.default_value = 60000,
-	},
-	{
-		.id = V4L2_CID_MPEG_VIDEO_GOP_CTRL,
+		.id = V4L2_CID_MPEG_VIDEO_SKIP_LAZY_UNMAP,
 		.type = V4L2_CTRL_TYPE_BOOLEAN,
-		.name = "Meaning of GOP_SIZE",
+		.name = "skip lazy unmap",
 		.minimum = 0,
 		.maximum = 1,
 		.step = 1,
@@ -2540,6 +2527,6 @@ static struct v4l2_queryctrl enc_controls[] = {
 	},
 };
 
-#define ENC_NUM_CTRLS ARRAY_SIZE(enc_controls)
+#define NUM_CTRLS ARRAY_SIZE(controls)
 
 #endif /* __MFC_ENC_INTERNAL_H */

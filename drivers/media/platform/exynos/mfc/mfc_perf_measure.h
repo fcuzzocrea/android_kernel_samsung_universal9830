@@ -35,6 +35,8 @@ static inline void mfc_perf_measure_off(struct mfc_core *core) {}
 
 #else
 
+extern unsigned int perf_measure_option;
+
 static inline void mfc_perf_init(struct mfc_core *core)
 {
 	core->perf.new_start = 0;

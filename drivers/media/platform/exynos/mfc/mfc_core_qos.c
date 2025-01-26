@@ -16,6 +16,7 @@
 #include "mfc_utils.h"
 
 #ifdef CONFIG_MFC_USE_BUS_DEVFREQ
+#define MFC_THROUGHPUT_OFFSET	(PM_QOS_MFC1_THROUGHPUT - PM_QOS_MFC_THROUGHPUT)
 enum {
 	MFC_QOS_ADD,
 	MFC_QOS_UPDATE,
@@ -35,13 +36,15 @@ void mfc_core_perf_boost_enable(struct mfc_core *core)
 	struct mfc_qos_boost *qos_boost_table = pdata->qos_boost_table;
 	int i;
 
-	if (core->dev->debugfs.perf_boost_mode & MFC_PERF_BOOST_DVFS) {
+	if (perf_boost_mode & MFC_PERF_BOOST_DVFS) {
 		if (pdata->mfc_freq_control)
-			pm_qos_add_request(&core->qos_req_mfc, PM_QOS_MFC_THROUGHPUT,
+			exynos_pm_qos_add_request(&core->qos_req_mfc,
+					PM_QOS_MFC_THROUGHPUT +
+					(core->id * MFC_THROUGHPUT_OFFSET),
 					qos_boost_table->freq_mfc);
-		pm_qos_add_request(&core->qos_req_int, PM_QOS_DEVICE_THROUGHPUT,
+		exynos_pm_qos_add_request(&core->qos_req_int, PM_QOS_DEVICE_THROUGHPUT,
 				qos_boost_table->freq_int);
-		pm_qos_add_request(&core->qos_req_mif, PM_QOS_BUS_THROUGHPUT,
+		exynos_pm_qos_add_request(&core->qos_req_mif, PM_QOS_BUS_THROUGHPUT,
 				qos_boost_table->freq_mif);
 		mfc_core_debug(3, "[QoS][BOOST] DVFS mfc: %d, int:%d, mif:%d\n",
 				qos_boost_table->freq_mfc, qos_boost_table->freq_int,
@@ -49,7 +52,7 @@ void mfc_core_perf_boost_enable(struct mfc_core *core)
 	}
 
 #ifdef CONFIG_MFC_USE_BTS
-	if (core->dev->debugfs.perf_boost_mode & MFC_PERF_BOOST_MO) {
+	if (perf_boost_mode & MFC_PERF_BOOST_MO) {
 		if (pdata->mo_control) {
 #ifdef CONFIG_MFC_NO_RENEWAL_BTS
 			bts_update_scen(BS_MFC_UHD_10BIT, 1);
@@ -63,9 +66,9 @@ void mfc_core_perf_boost_enable(struct mfc_core *core)
 	}
 #endif
 
-	if (core->dev->debugfs.perf_boost_mode & MFC_PERF_BOOST_CPU) {
+	if (perf_boost_mode & MFC_PERF_BOOST_CPU) {
 		for (i = 0; i < qos_boost_table->num_cluster; i++) {
-			pm_qos_add_request(&core->qos_req_cluster[i], PM_QOS_CLUSTER0_FREQ_MIN + (i * 2),
+			exynos_pm_qos_add_request(&core->qos_req_cluster[i], PM_QOS_CLUSTER0_FREQ_MIN + (i * 2),
 					qos_boost_table->freq_cluster[i]);
 			mfc_core_debug(3, "[QoS][BOOST] CPU cluster[%d]: %d\n",
 					i, qos_boost_table->freq_cluster[i]);
@@ -78,16 +81,16 @@ void mfc_core_perf_boost_disable(struct mfc_core *core)
 	struct mfc_core_platdata *pdata = core->core_pdata;
 	int i;
 
-	if (core->dev->debugfs.perf_boost_mode & MFC_PERF_BOOST_DVFS) {
+	if (perf_boost_mode & MFC_PERF_BOOST_DVFS) {
 		if (pdata->mfc_freq_control)
-			pm_qos_remove_request(&core->qos_req_mfc);
-		pm_qos_remove_request(&core->qos_req_int);
-		pm_qos_remove_request(&core->qos_req_mif);
+			exynos_pm_qos_remove_request(&core->qos_req_mfc);
+		exynos_pm_qos_remove_request(&core->qos_req_int);
+		exynos_pm_qos_remove_request(&core->qos_req_mif);
 		mfc_core_debug(3, "[QoS][BOOST] DVFS off\n");
 	}
 
 #ifdef CONFIG_MFC_USE_BTS
-	if (core->dev->debugfs.perf_boost_mode & MFC_PERF_BOOST_MO) {
+	if (perf_boost_mode & MFC_PERF_BOOST_MO) {
 		if (pdata->mo_control) {
 #ifdef CONFIG_MFC_NO_RENEWAL_BTS
 			bts_update_scen(BS_MFC_UHD_10BIT, 0);
@@ -102,9 +105,9 @@ void mfc_core_perf_boost_disable(struct mfc_core *core)
 	}
 #endif
 
-	if (core->dev->debugfs.perf_boost_mode & MFC_PERF_BOOST_CPU) {
+	if (perf_boost_mode & MFC_PERF_BOOST_CPU) {
 		for (i = 0; i < pdata->qos_boost_table->num_cluster; i++) {
-			pm_qos_remove_request(&core->qos_req_cluster[i]);
+			exynos_pm_qos_remove_request(&core->qos_req_cluster[i]);
 			mfc_core_debug(3, "[QoS][BOOST] CPU cluster[%d] off\n", i);
 		}
 	}
@@ -120,23 +123,25 @@ static void __mfc_qos_operate(struct mfc_core *core, int opr_type, int table_typ
 		qos_table = pdata->encoder_qos_table;
 	else
 		qos_table = pdata->default_qos_table;
-
-	if (core->mfc_freq_by_bps > qos_table[idx].freq_mfc)
-		freq_mfc = core->mfc_freq_by_bps;
-	else
-		freq_mfc = qos_table[idx].freq_mfc;
+	freq_mfc = qos_table[idx].freq_mfc;
 
 	switch (opr_type) {
 	case MFC_QOS_ADD:
-		core->last_mfc_freq = freq_mfc;
+		if (core->mfc_freq_by_bps > freq_mfc) {
+			mfc_core_debug(2, "[QoS] mfc freq set to high %d -> %d by bps\n",
+					freq_mfc, core->mfc_freq_by_bps);
+			freq_mfc = core->mfc_freq_by_bps;
+		}
+
 		if (pdata->mfc_freq_control)
-			pm_qos_add_request(&core->qos_req_mfc,
-					PM_QOS_MFC_THROUGHPUT,
+			exynos_pm_qos_add_request(&core->qos_req_mfc,
+					PM_QOS_MFC_THROUGHPUT +
+					(core->id * MFC_THROUGHPUT_OFFSET),
 					freq_mfc);
-		pm_qos_add_request(&core->qos_req_int,
+		exynos_pm_qos_add_request(&core->qos_req_int,
 				PM_QOS_DEVICE_THROUGHPUT,
 				qos_table[idx].freq_int);
-		pm_qos_add_request(&core->qos_req_mif,
+		exynos_pm_qos_add_request(&core->qos_req_mif,
 				PM_QOS_BUS_THROUGHPUT,
 				qos_table[idx].freq_mif);
 
@@ -172,11 +177,16 @@ static void __mfc_qos_operate(struct mfc_core *core, int opr_type, int table_typ
 				 qos_table[idx].freq_int, qos_table[idx].freq_mif);
 		break;
 	case MFC_QOS_UPDATE:
-		core->last_mfc_freq = freq_mfc;
+		if (core->mfc_freq_by_bps > freq_mfc) {
+			mfc_core_debug(2, "[QoS] mfc freq set to high %d -> %d by bps\n",
+					freq_mfc, core->mfc_freq_by_bps);
+			freq_mfc = core->mfc_freq_by_bps;
+		}
+
 		if (pdata->mfc_freq_control)
-			pm_qos_update_request(&core->qos_req_mfc, freq_mfc);
-		pm_qos_update_request(&core->qos_req_int, qos_table[idx].freq_int);
-		pm_qos_update_request(&core->qos_req_mif, qos_table[idx].freq_mif);
+			exynos_pm_qos_update_request(&core->qos_req_mfc, freq_mfc);
+		exynos_pm_qos_update_request(&core->qos_req_int, qos_table[idx].freq_int);
+		exynos_pm_qos_update_request(&core->qos_req_mif, qos_table[idx].freq_mif);
 
 #ifdef CONFIG_MFC_USE_BTS
 		if (pdata->mo_control) {
@@ -211,7 +221,6 @@ static void __mfc_qos_operate(struct mfc_core *core, int opr_type, int table_typ
 				qos_table[idx].freq_int, qos_table[idx].freq_mif);
 		break;
 	case MFC_QOS_REMOVE:
-		core->last_mfc_freq = 0;
 		if (atomic_read(&core->qos_req_cur) == 0) {
 			MFC_TRACE_CORE("QoS already removed\n");
 			mfc_core_debug(2, "[QoS] QoS already removed\n");
@@ -219,9 +228,9 @@ static void __mfc_qos_operate(struct mfc_core *core, int opr_type, int table_typ
 		}
 
 		if (pdata->mfc_freq_control)
-			pm_qos_remove_request(&core->qos_req_mfc);
-		pm_qos_remove_request(&core->qos_req_int);
-		pm_qos_remove_request(&core->qos_req_mif);
+			exynos_pm_qos_remove_request(&core->qos_req_mfc);
+		exynos_pm_qos_remove_request(&core->qos_req_int);
+		exynos_pm_qos_remove_request(&core->qos_req_mif);
 
 #ifdef CONFIG_MFC_USE_BTS
 		if (pdata->mo_control) {
@@ -276,7 +285,6 @@ static void __mfc_qos_set(struct mfc_core *core, struct mfc_ctx *ctx,
 	struct mfc_core_platdata *pdata = core->core_pdata;
 	struct mfc_qos *qos_table;
 	int num_qos_steps;
-	int freq_mfc;
 
 	if (table_type == MFC_QOS_TABLE_TYPE_ENCODER) {
 		num_qos_steps = pdata->num_encoder_qos_steps;
@@ -308,21 +316,9 @@ static void __mfc_qos_set(struct mfc_core *core, struct mfc_ctx *ctx,
 		 * 1) QoS level is changed
 		 * 2) MFC freq should be high regardless of QoS level
 		 */
-		if (atomic_read(&core->qos_req_cur) != (i + 1)) {
+		if ((atomic_read(&core->qos_req_cur) != (i + 1)) ||
+				(core->mfc_freq_by_bps > qos_table[i].freq_mfc))
 			__mfc_qos_operate(core, MFC_QOS_UPDATE, table_type, i);
-		} else {
-			if (core->mfc_freq_by_bps > qos_table[i].freq_mfc)
-				freq_mfc = core->mfc_freq_by_bps;
-			else
-				freq_mfc = qos_table[i].freq_mfc;
-			if (freq_mfc != core->last_mfc_freq) {
-				mfc_debug(2, "[QoS] mfc freq changed (last: %d, by bps: %d, QoS table: %d)\n",
-						core->last_mfc_freq,
-						core->mfc_freq_by_bps,
-						qos_table[i].freq_mfc);
-				__mfc_qos_operate(core, MFC_QOS_UPDATE, table_type, i);
-			}
-		}
 	}
 }
 
@@ -386,14 +382,7 @@ static inline unsigned long __mfc_qos_get_weighted_mb(struct mfc_ctx *ctx,
 		break;
 
 	case MFC_REG_CODEC_AV1_DEC:
-		weight = (weight * 100) / qos_weight->weight_av1;
-		mfc_debug(3, "[QoS] av1 codec, weight: %d\n", weight / 10);
-
-		if (ctx->is_10bit) {
-			weight = (weight * 100) / qos_weight->weight_10bit;
-			mfc_debug(3, "[QoS] 10bit, weight: %d\n", weight / 10);
-		}
-		break;
+		/* Todo: must be update! */
 	case MFC_REG_CODEC_VP9_DEC:
 	case MFC_REG_CODEC_VP9_ENC:
 		weight = (weight * 100) / qos_weight->weight_vp8_vp9;
@@ -464,54 +453,24 @@ static inline unsigned long __mfc_qos_get_weighted_mb(struct mfc_ctx *ctx,
 	return weighted_mb;
 }
 
-static inline unsigned long __mfc_qos_get_mb_per_second(struct mfc_core *core,
-		struct mfc_ctx *ctx, unsigned int max_mb)
+static inline unsigned long __mfc_qos_get_mb_per_second(struct mfc_ctx *ctx, unsigned int max_mb)
 {
-	unsigned long mb_width, mb_height, fps, frame_mb, mb, qos_weighted_mb;
+	unsigned long mb_width, mb_height, fps, mb;
 
 	mb_width = (ctx->crop_width + 15) / 16;
 	mb_height = (ctx->crop_height + 15) / 16;
-	frame_mb = mb_width * mb_height;
 	fps = ctx->framerate / 1000;
 
-	/* If decoder resolution is larger than HD and smaller than FHD, apply FHD for perf */
-	if ((ctx->type == MFCINST_DECODER) && (frame_mb > MFC_HD_RES_MB) &&
-			(frame_mb < MFC_FHD_RES_MB)) {
-		mfc_debug(3, "[QoS] frame MB size is changed %ld -> %ld (%dx%d)\n",
-				frame_mb, MFC_FHD_RES_MB,
-				ctx->crop_width, ctx->crop_height);
-		frame_mb = MFC_FHD_RES_MB;
-	}
-
-	mb = frame_mb * fps;
-	qos_weighted_mb = __mfc_qos_get_weighted_mb(ctx, mb);
-
-	/*
-	 * @ctx->weighted_mb: instance individual load regardless of operating in the multi core
-	 *	- ts_is_full 0: mb_width * mb_height * MFC_MIN_FPS
-	 *	- ts_is_full 1: mb_width * mb_height * actual fps by timestamp
-	 * @qos_weighted_mb: Load per core for QoS min lock considered multi core mode
-	 *	- ts_is_full 0: mb_width * mb_height * DEC(ENC)_DEFAULT_FPS
-	 *	- ts_is_full 1: mb_width * mb_height * actual fps by timestamp / working core
-	 */
-	if (ctx->src_ts.ts_is_full) {
-		ctx->weighted_mb = qos_weighted_mb;
-		ctx->load = ctx->weighted_mb * 100 / max_mb;
-	}
-	if (IS_MULTI_MODE(ctx)) {
-		fps = ctx->framerate / 1000 / ctx->dev->num_core;
-		mb = frame_mb * fps;
-		qos_weighted_mb = __mfc_qos_get_weighted_mb(ctx, mb);
-	}
+	mb = mb_width * mb_height * fps;
+	ctx->weighted_mb = __mfc_qos_get_weighted_mb(ctx, mb);
+	ctx->load = ctx->weighted_mb * 100 / max_mb;
 
 	mfc_debug(3, "[QoS] ctx[%d:%s] %d x %d @ %ld fps (mb: %ld), %dKbps, load %d%%\n",
 			ctx->num, ctx->type == MFCINST_ENCODER ? "ENC" : "DEC",
 			ctx->crop_width, ctx->crop_height, fps, mb, ctx->Kbps,
 			ctx->load);
 
-	core->total_mb += ctx->weighted_mb;
-
-	return qos_weighted_mb;
+	return ctx->weighted_mb;
 }
 
 #ifdef CONFIG_MFC_USE_BTS
@@ -673,7 +632,7 @@ void mfc_core_qos_on(struct mfc_core *core, struct mfc_ctx *ctx)
 	struct bts_bw curr_mfc_bw, curr_mfc_bw_ctx;
 #endif
 
-	if (core->dev->debugfs.perf_boost_mode) {
+	if (perf_boost_mode) {
 		mfc_ctx_info("[QoS][BOOST] skip control\n");
 		return;
 	}
@@ -698,16 +657,11 @@ void mfc_core_qos_on(struct mfc_core *core, struct mfc_ctx *ctx)
 	curr_mfc_bw.write = 0;
 #endif
 	/* get the hw macroblock */
-	core->total_mb = 0;
 	list_for_each_entry(qos_core_ctx, &core->qos_queue, qos_list) {
 		qos_ctx = qos_core_ctx->ctx;
-		if (qos_ctx->idle_mode == MFC_IDLE_MODE_IDLE) {
-			mfc_debug(3, "[QoS][MFCIDLE] skip idle ctx [%d]\n", qos_ctx->num);
-			continue;
-		}
 		if (qos_ctx->type == MFCINST_DECODER)
 			dec_found += 1;
-		hw_mb += __mfc_qos_get_mb_per_second(core, qos_ctx, pdata->max_mb);
+		hw_mb += __mfc_qos_get_mb_per_second(qos_ctx, pdata->max_mb);
 		total_fps += (qos_ctx->framerate / 1000);
 		total_bps += qos_ctx->Kbps;
 #ifdef CONFIG_MFC_USE_BTS
@@ -717,7 +671,6 @@ void mfc_core_qos_on(struct mfc_core *core, struct mfc_ctx *ctx)
 		curr_mfc_bw.write += curr_mfc_bw_ctx.write;
 #endif
 	}
-	mfc_debug(3, "[QoS] core-%d total hw mb: %lld\n", core->id, core->total_mb);
 
 	if (dec_found) {
 		/* default table */
@@ -752,6 +705,7 @@ void mfc_core_qos_on(struct mfc_core *core, struct mfc_ctx *ctx)
 
 	if (total_mb > pdata->max_mb)
 		mfc_debug(4, "[QoS] overspec mb %ld > %d\n", total_mb, pdata->max_mb);
+	core->total_mb = total_mb;
 
 	/* search the suitable independent mfc freq using bps */
 	core->mfc_freq_by_bps = __mfc_qos_get_freq_by_bps(core->dev, total_bps);
@@ -778,7 +732,7 @@ void mfc_core_qos_off(struct mfc_core *core, struct mfc_ctx *ctx)
 	struct bts_bw mfc_bw, mfc_bw_ctx;
 #endif
 
-	if (core->dev->debugfs.perf_boost_mode) {
+	if (perf_boost_mode) {
 		mfc_ctx_info("[QoS][BOOST] skip control\n");
 		return;
 	}
@@ -800,7 +754,6 @@ void mfc_core_qos_off(struct mfc_core *core, struct mfc_ctx *ctx)
 #endif
 
 	/* get the hw macroblock */
-	core->total_mb = 0;
 	list_for_each_entry(qos_core_ctx, &core->qos_queue, qos_list) {
 		if (qos_core_ctx == core->core_ctx[ctx->num]) {
 			found = 1;
@@ -808,13 +761,9 @@ void mfc_core_qos_off(struct mfc_core *core, struct mfc_ctx *ctx)
 		}
 
 		qos_ctx = qos_core_ctx->ctx;
-		if (qos_ctx->idle_mode == MFC_IDLE_MODE_IDLE) {
-			mfc_debug(3, "[QoS][MFCIDLE] skip idle ctx [%d]\n", qos_ctx->num);
-			continue;
-		}
 		if (qos_ctx->type == MFCINST_DECODER)
 			dec_found += 1;
-		hw_mb += __mfc_qos_get_mb_per_second(core, qos_ctx, pdata->max_mb);
+		hw_mb += __mfc_qos_get_mb_per_second(qos_ctx, pdata->max_mb);
 		total_fps += (qos_ctx->framerate / 1000);
 		total_bps += qos_ctx->Kbps;
 #ifdef CONFIG_MFC_USE_BTS
@@ -824,8 +773,6 @@ void mfc_core_qos_off(struct mfc_core *core, struct mfc_ctx *ctx)
 		mfc_bw.write += mfc_bw_ctx.write;
 #endif
 	}
-	mfc_debug(3, "[QoS] core-%d total hw mb: %lld\n", core->id, core->total_mb);
-
 	if (found)
 		list_del(&core->core_ctx[ctx->num]->qos_list);
 
@@ -862,6 +809,7 @@ void mfc_core_qos_off(struct mfc_core *core, struct mfc_ctx *ctx)
 
 	if (total_mb > pdata->max_mb)
 		mfc_debug(4, "[QoS] overspec mb %ld > %d\n", total_mb, pdata->max_mb);
+	core->total_mb = total_mb;
 
 	/* search the suitable independent mfc freq using bps */
 	core->mfc_freq_by_bps = __mfc_qos_get_freq_by_bps(core->dev, total_bps);
@@ -877,27 +825,6 @@ void mfc_core_qos_off(struct mfc_core *core, struct mfc_ctx *ctx)
 	}
 
 	mutex_unlock(&core->qos_mutex);
-}
-
-void __mfc_core_qos_on_idle(struct mfc_core *core)
-{
-	struct mfc_ctx *ctx;
-	int i;
-
-	mutex_lock(&core->dev->mfc_migrate_mutex);
-	if (!core->num_inst) {
-		mutex_unlock(&core->dev->mfc_migrate_mutex);
-		return;
-	}
-
-	for (i = 0; i < MFC_NUM_CONTEXTS; i++) {
-		if (core->core_ctx[i]) {
-			ctx = core->core_ctx[i]->ctx;
-			mfc_core_qos_on(core, ctx);
-			break;
-		}
-	}
-	mutex_unlock(&core->dev->mfc_migrate_mutex);
 }
 
 void __mfc_core_qos_off_all(struct mfc_core *core)
@@ -917,7 +844,6 @@ void __mfc_core_qos_off_all(struct mfc_core *core)
 		list_del(&qos_core_ctx->qos_list);
 
 	/* Select the opend ctx structure for QoS remove */
-	core->total_mb = 0;
 	__mfc_qos_operate(core, MFC_QOS_REMOVE, MFC_QOS_TABLE_TYPE_DEFAULT, 0);
 	mutex_unlock(&core->qos_mutex);
 }
@@ -926,38 +852,15 @@ void __mfc_core_qos_off_all(struct mfc_core *core)
 void mfc_core_qos_idle_worker(struct work_struct *work)
 {
 	struct mfc_core *core;
-	struct mfc_core_ctx *core_ctx;
-	struct mfc_ctx *ctx;
-	int is_idle = 0;
 
 	core = container_of(work, struct mfc_core, mfc_idle_work);
 
 	mutex_lock(&core->idle_qos_mutex);
-
-	/* Check idle mode for all context */
-	mutex_lock(&core->qos_mutex);
-	list_for_each_entry(core_ctx, &core->qos_queue, qos_list) {
-		ctx = core_ctx->ctx;
-		if (((atomic_read(&core->hw_run_bits) & (1 << ctx->num)) == 0) &&
-				((atomic_read(&core->dev->queued_bits) & (1 << ctx->num)) == 0)) {
-			mfc_ctx_change_idle_mode(ctx, MFC_IDLE_MODE_IDLE);
-			mfc_core_debug(3, "[MFCIDLE] ctx[%d] is idle (hw %#x Q %#x)\n", ctx->num,
-					core->hw_run_bits, core->dev->queued_bits);
-			ctx->boosting_time = 0;
-			is_idle = 1;
-		} else {
-			mfc_ctx_change_idle_mode(ctx, MFC_IDLE_MODE_NONE);
-		}
-	}
-	mutex_unlock(&core->qos_mutex);
-
 	if (core->idle_mode == MFC_IDLE_MODE_CANCEL) {
 		mfc_core_change_idle_mode(core, MFC_IDLE_MODE_NONE);
 		mfc_core_debug(2, "[QoS][MFCIDLE] idle mode is canceled\n");
-		goto ctx_idle;
-	} else if (core->idle_mode == MFC_IDLE_MODE_NONE) {
-		mfc_core_idle_checker_start_tick(core);
-		goto ctx_idle;
+		mutex_unlock(&core->idle_qos_mutex);
+		return;
 	}
 
 #ifdef CONFIG_MFC_USE_BUS_DEVFREQ
@@ -966,16 +869,6 @@ void mfc_core_qos_idle_worker(struct work_struct *work)
 	mfc_core_info("[QoS][MFCIDLE] MFC go to QoS idle mode\n");
 
 	mfc_core_change_idle_mode(core, MFC_IDLE_MODE_IDLE);
-	mutex_unlock(&core->idle_qos_mutex);
-	return;
-
-ctx_idle:
-#ifdef CONFIG_MFC_USE_BUS_DEVFREQ
-	if (is_idle) {
-		mfc_core_debug(2, "[QoS][MFCIDLE] idle mode is for ctx\n");
-		__mfc_core_qos_on_idle(core);
-	}
-#endif
 	mutex_unlock(&core->idle_qos_mutex);
 }
 
@@ -991,12 +884,6 @@ bool mfc_core_qos_idle_trigger(struct mfc_core *core, struct mfc_ctx *ctx)
 	} else if (core->idle_mode == MFC_IDLE_MODE_RUNNING) {
 		mfc_debug(2, "[QoS][MFCIDLE] restart QoS control, cancel idle\n");
 		mfc_core_change_idle_mode(core, MFC_IDLE_MODE_CANCEL);
-		update_idle = true;
-	}
-
-	if (ctx->idle_mode == MFC_IDLE_MODE_IDLE) {
-		mfc_debug(2, "[QoS][MFCIDLE] restart QoS control for ctx\n");
-		mfc_ctx_change_idle_mode(ctx, MFC_IDLE_MODE_NONE);
 		update_idle = true;
 	}
 	mutex_unlock(&core->idle_qos_mutex);

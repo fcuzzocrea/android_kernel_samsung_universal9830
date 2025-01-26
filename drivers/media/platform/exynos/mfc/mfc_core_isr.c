@@ -10,6 +10,8 @@
  * (at your option) any later version.
  */
 
+#include "mfc_rm.h"
+
 #include "mfc_core_isr.h"
 
 #include "mfc_core_hwlock.h"
@@ -150,50 +152,11 @@ static struct mfc_buf *__mfc_handle_last_frame(struct mfc_core *core, struct mfc
 	mfc_debug(2, "[DPB] Cleand up index = %d, used_flag = %#lx, queued = %#lx\n",
 			index, dec->dynamic_used, dec->queued_dpb);
 
+	mfc_handle_force_change_status(core->core_ctx[ctx->num]);
+
+	mfc_debug(2, "It can be continue decoding again\n");
+
 	return dst_mb;
-}
-
-static void __mfc_handle_frame_unused_output(struct mfc_core *core, struct mfc_ctx *ctx)
-{
-	struct mfc_dec *dec = ctx->dec_priv;
-	struct mfc_buf *mfc_buf = NULL;
-	unsigned int index;
-
-	while (1) {
-		mfc_buf = mfc_get_del_buf(ctx, &ctx->dst_buf_err_queue, MFC_BUF_NO_TOUCH_USED);
-		if (!mfc_buf)
-			break;
-
-		index = mfc_buf->vb.vb2_buf.index;
-
-		mfc_clear_mb_flag(mfc_buf);
-		mfc_buf->vb.flags &= ~(V4L2_BUF_FLAG_KEYFRAME |
-					V4L2_BUF_FLAG_PFRAME |
-					V4L2_BUF_FLAG_BFRAME |
-					V4L2_BUF_FLAG_ERROR);
-
-		if (call_cop(ctx, core_get_buf_ctrls_val, core, ctx,
-					&ctx->dst_ctrls[index]) < 0)
-			mfc_ctx_err("failed in core_get_buf_ctrls_val\n");
-
-		call_cop(ctx, get_buf_update_val, ctx,
-				&ctx->dst_ctrls[index],
-				V4L2_CID_MPEG_MFC51_VIDEO_DISPLAY_STATUS,
-				MFC_REG_DEC_STATUS_DECODING_ONLY);
-
-		call_cop(ctx, get_buf_update_val, ctx,
-				&ctx->dst_ctrls[index],
-				V4L2_CID_MPEG_MFC51_VIDEO_FRAME_TAG,
-				UNUSED_TAG);
-
-		dec->ref_buf[dec->refcnt].fd[0] = mfc_buf->vb.vb2_buf.planes[0].m.fd;
-		dec->refcnt++;
-
-		vb2_buffer_done(&mfc_buf->vb.vb2_buf, VB2_BUF_STATE_DONE);
-		mfc_debug(2, "[DPB] dst index [%d][%d] fd: %d is buffer done (not used)\n",
-				mfc_buf->vb.vb2_buf.index, mfc_buf->dpb_index,
-				mfc_buf->vb.vb2_buf.planes[0].m.fd);
-	}
 }
 
 static void __mfc_handle_frame_all_extracted(struct mfc_core *core,
@@ -260,9 +223,6 @@ static void __mfc_handle_frame_all_extracted(struct mfc_core *core,
 		mfc_debug(2, "[DPB] Cleand up index = %d, used_flag = %#lx, queued = %#lx\n",
 				index, dec->dynamic_used, dec->queued_dpb);
 	}
-
-	/* dequeue unused DPB */
-	__mfc_handle_frame_unused_output(core, ctx);
 
 	mfc_handle_force_change_status(core_ctx);
 	mfc_debug(2, "After cleanup\n");
@@ -477,7 +437,7 @@ static struct mfc_buf *__mfc_handle_frame_output_del(struct mfc_core *core,
 		}
 
 		if (mfc_get_warn(err)) {
-			mfc_ctx_info("Warning for displayed frame: %d\n",
+			mfc_ctx_err("Warning for displayed frame: %d\n",
 					mfc_get_warn(err));
 			dst_mb->vb.flags |= V4L2_BUF_FLAG_ERROR;
 		}
@@ -643,20 +603,14 @@ static struct mfc_buf *__mfc_handle_frame_output(struct mfc_core *core,
 
 /* Error handling for interrupt */
 static inline void __mfc_handle_error(struct mfc_core *core, struct mfc_ctx *ctx,
-	unsigned int reason, unsigned int error_code)
+	unsigned int reason, unsigned int err)
 {
 	struct mfc_core_ctx *core_ctx = core->core_ctx[ctx->num];
 	struct mfc_buf *src_mb;
-	unsigned int err, warn;
 
-	err = mfc_get_err(error_code);
-	warn = mfc_get_err(error_code);
-
-	if (((err >= MFC_REG_ERR_FRAME_CONCEAL) && (err <= MFC_REG_ERR_WARNINGS_END)) ||
-		((warn >= MFC_REG_ERR_FRAME_CONCEAL) && (warn <= MFC_REG_ERR_WARNINGS_END)))
-		mfc_core_info("Interrupt Warn: display: %d, decoded: %d\n", warn, err);
-	else
-		mfc_err("Interrupt Error: display: %d, decoded: %d\n", warn, err);
+	mfc_err("Interrupt Error: display: %d, decoded: %d\n",
+			mfc_get_warn(err), mfc_get_err(err));
+	err = mfc_get_err(err);
 
 	/* Error recovery is dependent on the state of context */
 	switch (core_ctx->state) {
@@ -709,8 +663,6 @@ static inline void __mfc_handle_error(struct mfc_core *core, struct mfc_ctx *ctx
 		mfc_change_state(core_ctx, MFCINST_ERROR);
 		/* Mark all dst buffers as having an error */
 		mfc_cleanup_queue(&ctx->buf_queue_lock, &ctx->dst_buf_queue);
-		if (ctx->dec_priv)
-			mfc_cleanup_queue(&ctx->buf_queue_lock, &ctx->dst_buf_err_queue);
 		/* Mark all src buffers as having an error */
 		mfc_cleanup_queue(&ctx->buf_queue_lock, &core_ctx->src_buf_queue);
 		break;
@@ -721,7 +673,7 @@ static inline void __mfc_handle_error(struct mfc_core *core, struct mfc_ctx *ctx
 		break;
 	}
 
-	mfc_wake_up_core(core, reason, error_code);
+	mfc_wake_up_core(core, reason, err);
 
 	return;
 }
@@ -736,7 +688,8 @@ static void __mfc_handle_frame_error(struct mfc_core *core, struct mfc_ctx *ctx,
 	enum vb2_buffer_state vb2_state;
 
 	if (ctx->type == MFCINST_ENCODER) {
-		mfc_ctx_info("Encoder Interrupt Error (err: %d)\n", mfc_get_err(err));
+		mfc_err("Encoder Interrupt Error (err: %d, warn: %d)\n",
+				mfc_get_err(err), mfc_get_warn(err));
 		return;
 	}
 
@@ -970,17 +923,24 @@ static void __mfc_handle_frame(struct mfc_core *core, struct mfc_ctx *ctx,
 	/* All frames remaining in the buffer have been extracted  */
 	if (dst_frame_status == MFC_REG_DEC_STATUS_DECODING_EMPTY) {
 		if (core_ctx->state == MFCINST_RES_CHANGE_FLUSH) {
+			struct mfc_timestamp *temp_ts = NULL;
+
 			mfc_debug(2, "[DRC] Last frame received after resolution change\n");
 			__mfc_handle_frame_all_extracted(core, ctx);
 			mfc_change_state(core_ctx, MFCINST_RES_CHANGE_END);
-			mfc_wake_up_drc_ctx(core_ctx);
 
 			if (IS_MULTI_CORE_DEVICE(dev))
 				mfc_rm_load_balancing(ctx, MFC_RM_LOAD_DELETE);
 
-			mfc_qos_reset_ts_list(&ctx->src_ts);
+			/* empty the timestamp queue */
+			while (!list_empty(&ctx->ts_list)) {
+				temp_ts = list_entry((&ctx->ts_list)->next,
+						struct mfc_timestamp, list);
+				list_del(&temp_ts->list);
+			}
+			ctx->ts_count = 0;
+			ctx->ts_is_full = 0;
 			mfc_qos_reset_last_framerate(ctx);
-			mfc_qos_reset_disp_framerate(ctx);
 			mfc_qos_set_framerate(ctx, DEC_DEFAULT_FPS);
 
 			goto leave_handle_frame;
@@ -1013,9 +973,6 @@ static void __mfc_handle_frame(struct mfc_core *core, struct mfc_ctx *ctx,
 	/* arrangement of assigned dpb table */
 	__mfc_handle_released_buf(core, ctx);
 
-	/* dequeue unused DPB */
-	__mfc_handle_frame_unused_output(core, ctx);
-
 	/* There is display buffer for user, update reference information */
 	if (mfc_buf) {
 		ref_info = &dec->ref_info[mfc_buf->vb.vb2_buf.index];
@@ -1040,12 +997,7 @@ static void __mfc_handle_frame(struct mfc_core *core, struct mfc_ctx *ctx,
 	if (dst_frame_status != MFC_REG_DEC_STATUS_DISPLAY_ONLY)
 		__mfc_handle_frame_input(core, ctx, err);
 
-	if (dst_frame_status == MFC_REG_DEC_STATUS_DECODING_EMPTY) {
-		mfc_handle_force_change_status(core->core_ctx[ctx->num]);
-		mfc_debug(2, "It can be continue decoding again\n");
-	}
-
-	if (dev->debugfs.regression_option & MFC_TEST_DEC_PER_FRAME)
+	if (regression_option & MFC_TEST_DEC_PER_FRAME)
 		mfc_core_dec_save_regression_result(core);
 
 leave_handle_frame:
@@ -1063,12 +1015,12 @@ static void __mfc_handle_stream_copy_timestamp(struct mfc_ctx *ctx, struct mfc_b
 
 	start_timestamp = src_mb->vb.vb2_buf.timestamp;
 	interval = NSEC_PER_SEC / p->rc_framerate;
-	if (ctx->dev->debugfs.debug_ts == 1)
+	if (debug_ts == 1)
 		mfc_ctx_info("[BUFCON][TS] %dfps, start timestamp: %lld, base interval: %lld\n",
 				p->rc_framerate, start_timestamp, interval);
 
 	new_timestamp = start_timestamp + (interval * src_mb->done_index);
-	if (ctx->dev->debugfs.debug_ts == 1)
+	if (debug_ts == 1)
 		mfc_ctx_info("[BUFCON][TS] new timestamp: %lld, interval: %lld\n",
 				new_timestamp, interval * src_mb->done_index);
 
@@ -1095,10 +1047,10 @@ static void __mfc_handle_stream_input(struct mfc_core *core, struct mfc_ctx *ctx
 	if (enc_addr[0] == 0) {
 		mfc_debug(3, "no encoded src\n");
 
-		if (enc->fake_src && enc->params.num_b_frame) {
+		if (enc->dummy_src && enc->params.num_b_frame) {
 			mfc_change_state(core_ctx, MFCINST_FINISHING);
-			enc->fake_src = 0;
-			mfc_debug(2, "clear fake_src and change to FINISHING\n");
+			enc->dummy_src = 0;
+			mfc_debug(2, "clear dummy_src and change to FINISHING\n");
 		}
 
 		goto move_buf;
@@ -1245,8 +1197,7 @@ static void __mfc_handle_stream_output(struct mfc_core *core,
 		mfc_debug(2, "bpg total stream size: %d\n", strm_size);
 	}
 	vb2_set_plane_payload(&dst_mb->vb.vb2_buf, 0, strm_size);
-	mfc_qos_update_bitrate(ctx, strm_size);
-	mfc_qos_update_framerate(ctx);
+	mfc_qos_update_framerate(ctx, strm_size);
 
 	index = dst_mb->vb.vb2_buf.index;
 	if (call_cop(ctx, core_get_buf_ctrls_val, core, ctx,
@@ -1345,7 +1296,7 @@ static int __mfc_handle_stream(struct mfc_core *core, struct mfc_ctx *ctx, unsig
 		__mfc_handle_stream_output(core, ctx, slice_type, strm_size);
 	}
 
-	if (core->dev->debugfs.regression_option)
+	if (regression_option)
 		mfc_core_enc_save_regression_result(core);
 
 	return 0;
@@ -1358,7 +1309,7 @@ static inline int __mfc_handle_done_frame(struct mfc_core *core,
 	struct mfc_enc *enc = NULL;
 
 	if (ctx->type == MFCINST_DECODER) {
-		if (core->dev->debugfs.sfr_dump & MFC_DUMP_DEC_FRAME_DONE)
+		if (sfr_dump & MFC_DUMP_DEC_FRAME_DONE)
 			call_dop(core, dump_regs, core);
 		if (core_ctx->state == MFCINST_SPECIAL_PARSING_NAL) {
 			mfc_core_clear_int();
@@ -1370,24 +1321,20 @@ static inline int __mfc_handle_done_frame(struct mfc_core *core,
 		}
 		__mfc_handle_frame(core, ctx, reason, err);
 	} else if (ctx->type == MFCINST_ENCODER) {
-		if (core->dev->debugfs.sfr_dump & MFC_DUMP_ENC_FRAME_DONE)
+		if (sfr_dump & MFC_DUMP_ENC_FRAME_DONE)
 			call_dop(core, dump_regs, core);
-#if IS_ENABLED(CONFIG_MFC_USES_OTF)
 		if (ctx->otf_handle) {
 			mfc_core_otf_handle_stream(core, ctx);
 			return 1;
 		}
-#endif
 		enc = ctx->enc_priv;
 		if (reason == MFC_REG_R2H_CMD_SLICE_DONE_RET) {
 			core->preempt_core_ctx = ctx->num;
 			enc->buf_full = 0;
 			enc->in_slice = 1;
 		} else if (reason == MFC_REG_R2H_CMD_ENC_BUFFER_FULL_RET) {
-			mfc_err("stream buffer size(%d) isn't enough, (Bitrate: %d)\n",
-				mfc_core_get_enc_strm_size(),
-				MFC_CORE_RAW_READL(MFC_REG_E_RC_BIT_RATE));
-
+			mfc_err("stream buffer size(%d) isn't enough\n",
+					mfc_core_get_enc_strm_size());
 			core->preempt_core_ctx = ctx->num;
 			enc->buf_full = 1;
 			enc->in_slice = 0;
@@ -1409,19 +1356,15 @@ static int __mfc_handle_seq_dec(struct mfc_core *core, struct mfc_ctx *ctx)
 	struct mfc_dec *dec = ctx->dec_priv;
 	struct mfc_buf *src_mb;
 	int i, is_interlace, is_mbaff;
-	unsigned int bytesused, fps, num_sbwc_inst = 0;
+	unsigned int bytesused;
 
 	if (ctx->src_fmt->fourcc != V4L2_PIX_FMT_FIMV1) {
 		ctx->img_width = mfc_core_get_img_width();
 		ctx->img_height = mfc_core_get_img_height();
 		ctx->crop_width = ctx->img_width;
 		ctx->crop_height = ctx->img_height;
-		ctx->mb_width = WIDTH_MB(ctx->img_width);
-		ctx->mb_height = HEIGHT_MB(ctx->img_height);
-		fps = MFC_MIN_FPS / 1000;
-		ctx->weighted_mb = ctx->mb_width * ctx->mb_height * fps;
-		mfc_ctx_info("[STREAM] resolution w: %d, h: %d (mb: %lld)\n",
-				ctx->img_width, ctx->img_height, ctx->weighted_mb);
+		mfc_ctx_info("[STREAM] resolution w: %d, h: %d\n",
+				ctx->img_width, ctx->img_height);
 	}
 
 	if (IS_AV1_DEC(ctx) || (IS_VP9_DEC(ctx) && UNDER_4K_RES(ctx)))
@@ -1464,39 +1407,19 @@ static int __mfc_handle_seq_dec(struct mfc_core *core, struct mfc_ctx *ctx)
 		if (dev->pdata->support_sbwc) {
 			ctx->is_sbwc = mfc_core_is_sbwc_avail();
 			if (ctx->is_sbwc && ((ctx->img_width > dev->pdata->sbwc_dec_max_width) ||
-				(ctx->img_height > dev->pdata->sbwc_dec_max_width) ||
-				(ctx->img_width * ctx->img_height) >
-				(dev->pdata->sbwc_dec_max_width * dev->pdata->sbwc_dec_max_height))) {
+				(ctx->img_height > dev->pdata->sbwc_dec_max_height))) {
 				ctx->is_sbwc = 0;
 				ctx->sbwc_disabled = 1;
 				mfc_debug(2, "[SBWC] disable sbwc, (%dx%d) > (%dx%d)\n",
 					ctx->img_width, ctx->img_height,
 					dev->pdata->sbwc_dec_max_width, dev->pdata->sbwc_dec_max_height);
-			} else if (ctx->is_sbwc && dev->debugfs.sbwc_disable) {
+			} else if (ctx->is_sbwc && sbwc_disable) {
 				ctx->is_sbwc = 0;
 				ctx->sbwc_disabled = 1;
 				mfc_debug(2, "[SBWC] disable sbwc, sbwc_disable command was set\n");
 			}
-
-			/* Check number of sbwc instance */
-			for (i = 0; i < MFC_NUM_CONTEXTS; i++) {
-				if (!dev->ctx[i])
-					continue;
-				if (dev->ctx[i]->is_sbwc)
-					num_sbwc_inst++;
-			}
-			if (ctx->is_sbwc &&
-					(num_sbwc_inst > dev->pdata->sbwc_dec_max_inst_num)) {
-				ctx->is_sbwc = 0;
-				ctx->sbwc_disabled = 1;
-				mfc_debug(2, "[SBWC] disable sbwc, num_sbwc_inst: %d/%d\n",
-						num_sbwc_inst,
-						dev->pdata->sbwc_dec_max_inst_num);
-			}
 			MFC_TRACE_CORE_CTX("*** is_sbwc %d\n", ctx->is_sbwc);
-			mfc_debug(2, "[SBWC] is_sbwc %d, num_sbwc_inst: %d/%d\n",
-					ctx->is_sbwc, num_sbwc_inst,
-					dev->pdata->sbwc_dec_max_inst_num);
+			mfc_debug(2, "[SBWC] is_sbwc %d\n", ctx->is_sbwc);
 		}
 	}
 
@@ -1509,16 +1432,18 @@ static int __mfc_handle_seq_dec(struct mfc_core *core, struct mfc_ctx *ctx)
 				i, ctx->min_dpb_size[i], i, ctx->min_dpb_size_2bits[i]);
 	}
 
+	if (core->has_llc && core->llc_on_status)
+		mfc_llc_handle_resol(core, ctx);
+
 	if (IS_MULTI_CORE_DEVICE(dev) && mfc_core_get_two_core_mode()) {
-		if (dev->debugfs.feature_option & MFC_OPTION_MULTI_CORE_DISABLE) {
+		if (feature_option & MFC_OPTION_MULTI_CORE_DISABLE) {
 			mfc_ctx_info("[2CORE] op_mode: %d stream, but multi core disable\n",
 					mfc_core_get_two_core_mode());
 		} else {
 			if (dev->num_inst > 1)
 				mfc_debug(2, "[2CORE] multi core bits: %#llx, num inst: %d\n",
 						dev->multi_core_inst_bits, dev->num_inst);
-			ctx->stream_op_mode = mfc_core_get_two_core_mode();
-			mfc_change_op_mode(ctx, ctx->stream_op_mode);
+			mfc_change_op_mode(ctx, (enum mfc_op_mode)mfc_core_get_two_core_mode());
 			set_bit(ctx->num, &dev->multi_core_inst_bits);
 			mfc_ctx_info("[2CORE] This stream need to multi core op_mode(%d)\n",
 					ctx->op_mode);
@@ -1544,10 +1469,11 @@ static int __mfc_handle_seq_dec(struct mfc_core *core, struct mfc_ctx *ctx)
 		}
 	}
 
-	if (src_mb && IS_MULTI_MODE(ctx) && dec->consumed) {
-		mfc_debug(2, "[STREAM][2CORE] src should be moved without consumed\n");
-		dec->consumed = 0;
-		dec->remained_size = 0;
+	if (src_mb && IS_MULTI_MODE(ctx)) {
+		src_mb = mfc_get_move_buf(ctx, &ctx->src_buf_ready_queue,
+				&core_ctx->src_buf_queue,
+				MFC_BUF_RESET_USED, MFC_QUEUE_ADD_TOP);
+		MFC_TRACE_CORE_CTX("SEQ: Move src[%d] to ready_queue\n", src_mb->src_index);
 	}
 
 	dec->frame_display_delay = mfc_core_get_display_delay();
@@ -1569,7 +1495,7 @@ static int __mfc_handle_seq_dec(struct mfc_core *core, struct mfc_ctx *ctx)
 
 	mfc_change_state(core_ctx, MFCINST_HEAD_PARSED);
 
-	if (dev->debugfs.regression_option)
+	if (regression_option)
 		mfc_core_dec_save_regression_result(core);
 
 	return 0;
@@ -1588,6 +1514,9 @@ static int __mfc_handle_seq_enc(struct mfc_core *core, struct mfc_ctx *ctx)
 	mfc_debug(2, "[STREAM] encoded slice type: %d, header size: %d, display order: %d\n",
 			mfc_core_get_enc_slice_type(), enc->header_size,
 			mfc_core_get_enc_pic_count());
+
+	if (core->has_llc && core->llc_on_status)
+		mfc_llc_handle_resol(core, ctx);
 
 	if (IS_BPG_ENC(ctx)) {
 		dst_mb = mfc_get_buf(ctx, &ctx->dst_buf_queue,
@@ -1699,8 +1628,8 @@ irqreturn_t mfc_core_top_half_irq(int irq, void *priv)
 			(reason == MFC_REG_R2H_CMD_QUEUE_DONE_RET))
 		ctx->frame_cnt++;
 
-	mfc_core_debug(2, "[c:%d] Int reason: %d (err: %d, warn: %d)\n",
-			core->curr_core_ctx, reason, mfc_get_err(err), mfc_get_warn(err));
+	mfc_core_debug(2, "[c:%d] Int reason: %d (err: %d)\n",
+			core->curr_core_ctx, reason, err);
 	MFC_TRACE_CORE_CTX("<< INT(top): %d\n", reason);
 	MFC_TRACE_LOG_CORE("I%d", reason);
 
@@ -1815,12 +1744,10 @@ static int __mfc_irq_ctx(struct mfc_core *core, struct mfc_ctx *ctx,
 
 	switch (reason) {
 	case MFC_REG_R2H_CMD_ERR_RET:
-#if IS_ENABLED(CONFIG_MFC_USES_OTF)
 		if (ctx->otf_handle) {
 			mfc_core_otf_handle_error(core, ctx, reason, err);
 			break;
 		}
-#endif
 		/* An error has occured */
 		if (core_ctx->state == MFCINST_RUNNING || core_ctx->state == MFCINST_ABORT) {
 			if ((mfc_get_err(err) >= MFC_REG_ERR_FRAME_CONCEAL) &&
@@ -1847,12 +1774,10 @@ static int __mfc_irq_ctx(struct mfc_core *core, struct mfc_ctx *ctx,
 		break;
 	case MFC_REG_R2H_CMD_SEQ_DONE_RET:
 		if (ctx->type == MFCINST_ENCODER) {
-#if IS_ENABLED(CONFIG_MFC_USES_OTF)
 			if (ctx->otf_handle) {
 				mfc_core_otf_handle_seq(core, ctx);
 				break;
 			}
-#endif
 			__mfc_handle_seq_enc(core, ctx);
 		} else if (ctx->type == MFCINST_DECODER) {
 			__mfc_handle_seq_dec(core, ctx);
@@ -1882,14 +1807,13 @@ static int __mfc_irq_ctx(struct mfc_core *core, struct mfc_ctx *ctx,
 			if (ctx->is_dpb_realloc)
 				ctx->is_dpb_realloc = 0;
 		}
-#if IS_ENABLED(CONFIG_MFC_USES_OTF)
-		if (ctx->otf_handle &&
-			(core->dev->debugfs.feature_option & MFC_OPTION_OTF_PATH_TEST_ENABLE))
+
+		if (ctx->otf_handle && (feature_option & MFC_OPTION_OTF_PATH_TEST_ENABLE))
 			mfc_core_otf_path_test(ctx);
-#endif
+
 		break;
 	case MFC_REG_R2H_CMD_MOVE_INSTANCE_RET:
-		if (core->dev->debugfs.sfr_dump & MFC_DUMP_MOVE_INSTANCE_RET)
+		if (sfr_dump & MFC_DUMP_MOVE_INSTANCE_RET)
 			call_dop(core, dump_regs, core);
 		break;
 	default:
@@ -1927,14 +1851,13 @@ irqreturn_t mfc_core_irq(int irq, void *priv)
 
 	core->preempt_core_ctx = MFC_NO_INSTANCE_SET;
 
-	if (core->dev->debugfs.dbg_enable && (reason != MFC_REG_R2H_CMD_QUEUE_DONE_RET))
+	if (dbg_enable && (reason != MFC_REG_R2H_CMD_QUEUE_DONE_RET))
 		mfc_core_dbg_disable(core);
 
-	if ((core->dev->debugfs.sfr_dump & MFC_DUMP_ERR_INT) &&
-		(reason == MFC_REG_R2H_CMD_ERR_RET))
+	if ((sfr_dump & MFC_DUMP_ERR_INT) && (reason == MFC_REG_R2H_CMD_ERR_RET))
 		call_dop(core, dump_regs, core);
 
-	if ((core->dev->debugfs.sfr_dump & MFC_DUMP_WARN_INT) &&
+	if ((sfr_dump & MFC_DUMP_WARN_INT) &&
 			(err && (reason != MFC_REG_R2H_CMD_ERR_RET)))
 		call_dop(core, dump_regs, core);
 
@@ -1986,12 +1909,12 @@ irqreturn_t mfc_core_irq(int irq, void *priv)
 
 	if (core_ctx->state != MFCINST_RES_CHANGE_INIT)
 		mfc_ctx_ready_clear_bit(core_ctx, &core->work_bits);
-#if IS_ENABLED(CONFIG_MFC_USES_OTF)
+
 	if (ctx->otf_handle) {
 		if (mfc_core_otf_ctx_ready_set_bit(core_ctx, &core->work_bits) == 0)
 			mfc_core_otf_ctx_ready_clear_bit(core_ctx, &core->work_bits);
 	}
-#endif
+
 	mfc_core_hwlock_handler_irq(core, ctx, reason, err);
 
 irq_end:

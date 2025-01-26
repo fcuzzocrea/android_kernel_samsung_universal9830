@@ -15,11 +15,7 @@
 
 #include "mfc_common.h"
 
-extern struct mfc_ctrls_ops decoder_ctrls_ops;
-extern struct vb2_ops mfc_dec_qops;
-void mfc_dec_set_default_format(struct mfc_ctx *ctx);
-
-static struct mfc_fmt dec_formats[] = {
+struct mfc_fmt dec_formats[] = {
 	{
 		.name = "4:2:0 3 Planes Y/Cb/Cr",
 		.fourcc = V4L2_PIX_FMT_YUV420M,
@@ -342,9 +338,9 @@ static struct mfc_fmt dec_formats[] = {
 	},
 };
 
-#define DEC_NUM_FORMATS ARRAY_SIZE(dec_formats)
+#define NUM_FORMATS ARRAY_SIZE(dec_formats)
 
-static struct v4l2_queryctrl dec_controls[] = {
+static struct v4l2_queryctrl controls[] = {
 	{
 		.id = V4L2_CID_MPEG_MFC51_VIDEO_DECODER_H264_DISPLAY_DELAY,
 		.type = V4L2_CTRL_TYPE_INTEGER,
@@ -466,8 +462,8 @@ static struct v4l2_queryctrl dec_controls[] = {
 		.id = V4L2_CID_MPEG_MFC51_VIDEO_FRAME_RATE,
 		.type = V4L2_CTRL_TYPE_INTEGER,
 		.name = "Frames per second in 1000x scale",
-		.minimum = 0,
-		.maximum = INT_MAX,
+		.minimum = 1,
+		.maximum = 480000,
 		.step = 1,
 		.default_value = 60000,
 	},
@@ -521,8 +517,8 @@ static struct v4l2_queryctrl dec_controls[] = {
 		.type = V4L2_CTRL_TYPE_INTEGER,
 		.name = "QoS ratio value",
 		.minimum = 20,
-		.maximum = INT_MAX,
-		.step = 1,
+		.maximum = 1000,
+		.step = 10,
 		.default_value = 100,
 	},
 	{
@@ -660,8 +656,17 @@ static struct v4l2_queryctrl dec_controls[] = {
 		.step = 1,
 		.default_value = 0,
 	},
+	{
+		.id = V4L2_CID_MPEG_VIDEO_SKIP_LAZY_UNMAP,
+		.type = V4L2_CTRL_TYPE_BOOLEAN,
+		.name = "skip lazy unmap",
+		.minimum = 0,
+		.maximum = 1,
+		.step = 1,
+		.default_value = 0,
+	},
 };
 
-#define DEC_NUM_CTRLS ARRAY_SIZE(dec_controls)
+#define NUM_CTRLS ARRAY_SIZE(controls)
 
 #endif /* __MFC_DEC_INTERNAL_H */

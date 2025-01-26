@@ -13,7 +13,6 @@
 #include <trace/events/mfc.h>
 
 #include "mfc_core_cmd.h"
-#include "mfc_core_intlock.h"
 
 #include "mfc_perf_measure.h"
 #include "mfc_core_reg_api.h"
@@ -88,7 +87,7 @@ void mfc_core_cmd_open_inst(struct mfc_core *core, struct mfc_ctx *ctx)
 	reg &= ~(0x7 << 1);
 	if (ctx->otf_handle) {
 		/* Set OTF_CONTROL[2:1], 0: Non-OTF, 1: OTF+HWFC, 2: OTF only, 3: OTF+vOTF */
-		if (dev->debugfs.feature_option & MFC_OPTION_OTF_PATH_TEST_ENABLE) {
+		if (feature_option & MFC_OPTION_OTF_PATH_TEST_ENABLE) {
 			reg |= (0x2 << 1);
 			mfc_ctx_info("[OTF] OTF enabled\n");
 		} else if (core->has_dpu_votf && core->has_mfc_votf) {
@@ -98,7 +97,7 @@ void mfc_core_cmd_open_inst(struct mfc_core *core, struct mfc_ctx *ctx)
 			reg |= (0x1 << 1);
 			mfc_ctx_info("[OTF] HWFC + OTF enabled\n");
 		}
-		if (dev->debugfs.otf_dump && !ctx->is_drm) {
+		if (otf_dump && !ctx->is_drm) {
 			/* Set OTF_DEBUG[3] for OTF path dump */
 			reg |= (0x1 << 3);
 			mfc_ctx_info("[OTF] Debugging mode enabled\n");
@@ -119,7 +118,7 @@ void mfc_core_cmd_open_inst(struct mfc_core *core, struct mfc_ctx *ctx)
 	if (ctx->type == MFCINST_DECODER)
 		MFC_CORE_WRITEL(ctx->dec_priv->crc_enable, MFC_REG_D_CRC_CTRL);
 
-	if (dev->debugfs.feature_option & MFC_OPTION_SET_MULTI_CORE_FORCE) {
+	if (feature_option & MFC_OPTION_SET_MULTI_CORE_FORCE) {
 		MFC_CORE_WRITEL(0x4, MFC_REG_DBG_INFO_ENABLE);
 		mfc_ctx_info("[2CORE] Forcely enable multi core mode\n");
 	}
@@ -173,32 +172,19 @@ void mfc_core_cmd_move_inst(struct mfc_core *core, struct mfc_ctx *ctx)
 
 void mfc_core_cmd_dpb_flush(struct mfc_core *core, struct mfc_ctx *ctx)
 {
+	struct mfc_dev *dev = ctx->dev;
 	struct mfc_core_ctx *core_ctx = core->core_ctx[ctx->num];
-	u32 reg = 0;
 
 	if (ON_RES_CHANGE(core_ctx))
 		mfc_err("dpb flush on res change(state:%d)\n",
 				core_ctx->state);
 
-	mutex_lock(&ctx->op_mode_mutex);
 	if (ctx->op_mode == MFC_OP_SWITCH_BUT_MODE2) {
-		mfc_change_op_mode(ctx, MFC_OP_SWITCH_TO_SINGLE);
-		mfc_debug(2, "[2CORE] change op_mode: %d for dpb_flush\n", ctx->op_mode);
+		ctx->op_mode = MFC_OP_SWITCH_TO_SINGLE;
+		mfc_debug(2, "[2CORE] change op_mode to %d\n", ctx->op_mode);
+		MFC_TRACE_RM("[c:%d] will change op_mode: 5 -> %d\n",
+				core_ctx->num, ctx->op_mode);
 	}
-
-	/*
-	 * NAL_START_OPTIONS[4] should set when every NAL_START/DPB_FLUSH,
-	 * it will be cleared by F/W.
-	 */
-	reg = MFC_CORE_READL(MFC_REG_D_NAL_START_OPTIONS);
-	reg &= ~(0x1 << MFC_REG_D_NAL_START_OPT_TWO_MFC_ENABLE_SHIFT);
-	if (IS_MULTI_MODE(ctx))
-		reg |= (1 << MFC_REG_D_NAL_START_OPT_TWO_MFC_ENABLE_SHIFT);
-	else
-		reg |= (0 << MFC_REG_D_NAL_START_OPT_TWO_MFC_ENABLE_SHIFT);
-	MFC_CORE_WRITEL(reg, MFC_REG_D_NAL_START_OPTIONS);
-	mfc_debug(3, "NAL_START_OPTIONS: %#x, op_mode: %d\n", reg, ctx->op_mode);
-	mutex_unlock(&ctx->op_mode_mutex);
 
 	mfc_clean_core_ctx_int_flags(core_ctx);
 
@@ -252,7 +238,7 @@ void mfc_core_cmd_dec_seq_header(struct mfc_core *core, struct mfc_ctx *ctx)
 	reg |= (0x4 << MFC_REG_D_DEC_OPT_CONCEAL_CONTROL_SHIFT);
 
 	/* Disable parallel processing if nal_q_parallel_disable was set */
-	if (dev->debugfs.nal_q_parallel_disable)
+	if (nal_q_parallel_disable)
 		reg |= (0x2 << MFC_REG_D_DEC_OPT_PARALLEL_DISABLE_SHIFT);
 
 	/* Realloc buffer for resolution decrease case in NAL QUEUE mode */
@@ -262,9 +248,15 @@ void mfc_core_cmd_dec_seq_header(struct mfc_core *core, struct mfc_ctx *ctx)
 	reg |= (0x1 << MFC_REG_D_DEC_OPT_SPECIAL_PARSING_SHIFT);
 
 	/* Enabe decoding order */
-	if (dec->decoding_order ||
-		(dev->debugfs.feature_option & MFC_OPTION_DECODING_ORDER))
+	if (dec->decoding_order || (feature_option & MFC_OPTION_DECODING_ORDER))
 		reg |= (0x1 << MFC_REG_D_DEC_OPT_DECODING_ORDER_ENABLE);
+
+	/* Todo: How to check ANNEX B Format feature? */
+	/* Enabe ANNEX B Format for AV1 */
+#if 0
+	if (IS_AV1_DEC(ctx) && ctx->is_av1_annex_b)
+		reg |= (0x1 << MFC_REG_D_DEC_OPT_AV1_ANNEX_B_FORMAT_SHIFT);
+#endif
 
 	MFC_CORE_WRITEL(reg, MFC_REG_D_DEC_OPTIONS);
 
@@ -299,7 +291,7 @@ void mfc_core_cmd_dec_seq_header(struct mfc_core *core, struct mfc_ctx *ctx)
 
 	MFC_CORE_WRITEL(core_ctx->inst_no, MFC_REG_INSTANCE_ID);
 
-	if (dev->debugfs.sfr_dump & MFC_DUMP_DEC_SEQ_START)
+	if (sfr_dump & MFC_DUMP_DEC_SEQ_START)
 		call_dop(core, dump_regs, core);
 
 	if (dec->crc_enable && dev->pdata->support_sbwc && IS_SBWC_FMT(ctx->dst_fmt))
@@ -325,22 +317,19 @@ int mfc_core_cmd_enc_seq_header(struct mfc_core *core, struct mfc_ctx *ctx)
 
 	MFC_CORE_WRITEL(core_ctx->inst_no, MFC_REG_INSTANCE_ID);
 
-	if (core->dev->debugfs.reg_test)
+	if (reg_test)
 		mfc_core_set_test_params(core);
 
-#if IS_ENABLED(CONFIG_MFC_USES_OTF)
 	if (ctx->gdc_votf && core->has_gdc_votf && core->has_mfc_votf)
 		mfc_core_set_gdc_votf(core, ctx);
 
 	if (ctx->otf_handle && core->has_dpu_votf && core->has_mfc_votf)
 		mfc_core_set_dpu_votf(core, ctx);
-#endif
 
-	if (core->dev->debugfs.sfr_dump & MFC_DUMP_ENC_SEQ_START)
+	if (sfr_dump & MFC_DUMP_ENC_SEQ_START)
 		call_dop(core, dump_regs, core);
 
-	if ((core->memlog.sfr_enable) &&
-		(core->dev->debugfs.logging_option & MFC_LOGGING_MEMLOG_SFR_DUMP))
+	if ((core->memlog.sfr_enable) && (logging_option & MFC_LOGGING_MEMLOG_SFR_DUMP))
 		memlog_do_dump(core->memlog.sfr_obj, MEMLOG_LEVEL_INFO);
 
 	mfc_core_cmd_host2risc(core, MFC_REG_H2R_CMD_SEQ_HEADER);
@@ -379,16 +368,16 @@ int mfc_core_cmd_dec_init_buffers(struct mfc_core *core, struct mfc_ctx *ctx)
 		}
 	}
 
-	if (IS_MULTI_MODE(ctx)) {
-		reg |= ((ctx->subcore_inst_no & MFC_REG_RET_INSTANCE_ID_OF_MFC1_MASK)
-				<< MFC_REG_RET_INSTANCE_ID_OF_MFC1_SHIFT);
+	if (IS_TWO_MODE2(ctx)) {
+		reg |= ((ctx->slave_inst_no & MFC_REG_RET_INSTANCE_ID_OF_SLAVE_MASK)
+				<< MFC_REG_RET_INSTANCE_ID_OF_SLAVE_SHIFT);
 		reg |= (core_ctx->inst_no & MFC_REG_RET_INSTANCE_ID_MASK);
 		MFC_CORE_WRITEL(reg, MFC_REG_INSTANCE_ID);
 	} else {
 		MFC_CORE_WRITEL(core_ctx->inst_no, MFC_REG_INSTANCE_ID);
 	}
 
-	if (core->dev->debugfs.sfr_dump & MFC_DUMP_DEC_INIT_BUFS)
+	if (sfr_dump & MFC_DUMP_DEC_INIT_BUFS)
 		call_dop(core, dump_regs, core);
 
 	mfc_core_cmd_host2risc(core, MFC_REG_H2R_CMD_INIT_BUFFERS);
@@ -438,7 +427,7 @@ int mfc_core_cmd_enc_init_buffers(struct mfc_core *core, struct mfc_ctx *ctx)
 
 	MFC_CORE_WRITEL(core_ctx->inst_no, MFC_REG_INSTANCE_ID);
 
-	if (core->dev->debugfs.sfr_dump & MFC_DUMP_ENC_INIT_BUFS)
+	if (sfr_dump & MFC_DUMP_ENC_INIT_BUFS)
 		call_dop(core, dump_regs, core);
 
 	mfc_core_cmd_host2risc(core, MFC_REG_H2R_CMD_INIT_BUFFERS);
@@ -506,7 +495,7 @@ int mfc_core_cmd_dec_one_frame(struct mfc_core *core, struct mfc_ctx *ctx,
 	/* Black bar */
 	reg &= ~(0x1 << MFC_REG_D_NAL_START_OPT_BLACK_BAR_SHIFT);
 	reg |= ((dec->detect_black_bar & 0x1) << MFC_REG_D_NAL_START_OPT_BLACK_BAR_SHIFT);
-	if (core->dev->debugfs.feature_option & MFC_OPTION_BLACK_BAR_ENABLE)
+	if (feature_option & MFC_OPTION_BLACK_BAR_ENABLE)
 		reg |= (1 << MFC_REG_D_NAL_START_OPT_BLACK_BAR_SHIFT);
 	/* Scratch buf & DPB changes when interframe resolution change */
 	if (dec->inter_res_change) {
@@ -521,7 +510,6 @@ int mfc_core_cmd_dec_one_frame(struct mfc_core *core, struct mfc_ctx *ctx,
 		reg &= ~(0x1 << MFC_REG_D_NAL_START_OPT_NEW_DPB_SHIFT);
 	}
 	/* Operation core mode */
-	mutex_lock(&ctx->op_mode_mutex);
 	reg &= ~(0x1 << MFC_REG_D_NAL_START_OPT_TWO_MFC_ENABLE_SHIFT);
 	if (IS_MULTI_MODE(ctx) || ctx->op_mode == MFC_OP_SWITCH_BUT_MODE2)
 		reg |= (1 << MFC_REG_D_NAL_START_OPT_TWO_MFC_ENABLE_SHIFT);
@@ -529,14 +517,11 @@ int mfc_core_cmd_dec_one_frame(struct mfc_core *core, struct mfc_ctx *ctx,
 		reg |= (0 << MFC_REG_D_NAL_START_OPT_TWO_MFC_ENABLE_SHIFT);
 	if (ctx->op_mode == MFC_OP_SWITCH_BUT_MODE2) {
 		mfc_debug(2, "[2CORE] operate once op_mode %d\n", ctx->op_mode);
-		mfc_change_op_mode(ctx, MFC_OP_SWITCH_TO_SINGLE);
-	} else if (ctx->op_mode == MFC_OP_SWITCHING) {
-		mfc_err("[2CORE] It is a mode that can not operate\n");
+		ctx->op_mode = MFC_OP_SWITCH_TO_SINGLE;
 	}
-	/* If it is switched to single, interrupt lock is not needed. */
-	if (IS_SWITCH_SINGLE_MODE(ctx))
-		mfc_clear_core_intlock(ctx);
-	mutex_unlock(&ctx->op_mode_mutex);
+	/* For debugging */
+	if (ctx->op_mode == MFC_OP_SWITCHING)
+		mfc_err("[2CORE] It is a mode that can not operate\n");
 	MFC_CORE_WRITEL(reg, MFC_REG_D_NAL_START_OPTIONS);
 	mfc_debug(3, "NAL_START_OPTIONS: %#x, op_mode: %d\n", reg, ctx->op_mode);
 
@@ -549,17 +534,16 @@ int mfc_core_cmd_dec_one_frame(struct mfc_core *core, struct mfc_ctx *ctx,
 	MFC_CORE_WRITEL(MFC_TIMEOUT_VALUE, MFC_REG_TIMEOUT_VALUE);
 	MFC_CORE_WRITEL(core_ctx->inst_no, MFC_REG_INSTANCE_ID);
 
-	if ((core->dev->debugfs.sfr_dump & MFC_DUMP_DEC_FIRST_NAL_START) &&
-		!core_ctx->check_dump) {
+	if ((sfr_dump & MFC_DUMP_DEC_FIRST_NAL_START) && !core_ctx->check_dump) {
 		call_dop(core, dump_regs, core);
 		core_ctx->check_dump = 1;
 	}
-	if (core->dev->debugfs.sfr_dump & MFC_DUMP_DEC_NAL_START)
+	if (sfr_dump & MFC_DUMP_DEC_NAL_START)
 		call_dop(core, dump_regs, core);
 
 	/* source index for 2core mode2 should set just before sent command */
 	if (IS_TWO_MODE2(ctx) || IS_SWITCH_SINGLE_MODE(ctx)) {
-		mutex_lock(&ctx->op_mode_mutex);
+		mutex_lock(&ctx->cpb_mutex);
 		mfc_debug(2, "[MFC-%d][STREAM] set cpb: %d, curr index: %d\n",
 				core->id, src_index, ctx->curr_src_index);
 		ctx->curr_src_index = src_index;
@@ -581,7 +565,7 @@ int mfc_core_cmd_dec_one_frame(struct mfc_core *core, struct mfc_ctx *ctx,
 	}
 
 	if (IS_TWO_MODE2(ctx) || IS_SWITCH_SINGLE_MODE(ctx))
-		mutex_unlock(&ctx->op_mode_mutex);
+		mutex_unlock(&ctx->cpb_mutex);
 
 	mfc_debug(2, "Decoding a usual frame\n");
 	return 0;
@@ -598,12 +582,11 @@ void mfc_core_cmd_enc_one_frame(struct mfc_core *core, struct mfc_ctx *ctx,
 	MFC_CORE_WRITEL(MFC_TIMEOUT_VALUE, MFC_REG_TIMEOUT_VALUE);
 	MFC_CORE_WRITEL(core_ctx->inst_no, MFC_REG_INSTANCE_ID);
 
-	if ((core->dev->debugfs.sfr_dump & MFC_DUMP_ENC_FIRST_NAL_START) &&
-		!core_ctx->check_dump) {
+	if ((sfr_dump & MFC_DUMP_ENC_FIRST_NAL_START) && !core_ctx->check_dump) {
 		call_dop(core, dump_regs, core);
 		core_ctx->check_dump = 1;
 	}
-	if (core->dev->debugfs.sfr_dump & MFC_DUMP_ENC_NAL_START)
+	if (sfr_dump & MFC_DUMP_ENC_NAL_START)
 		call_dop(core, dump_regs, core);
 
 	/*

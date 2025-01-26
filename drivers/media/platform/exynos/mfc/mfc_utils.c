@@ -10,10 +10,9 @@
  * (at your option) any later version.
  */
 
-#include <linux/smc.h>
+#include <soc/samsung/exynos-smc.h>
 
 #include "mfc_utils.h"
-#include "mfc_sync.h"
 #include "mfc_qos.h"
 #include "mfc_mem.h"
 
@@ -331,15 +330,17 @@ void mfc_dec_calc_dpb_size(struct mfc_ctx *ctx)
 void mfc_enc_calc_src_size(struct mfc_ctx *ctx)
 {
 	struct mfc_raw_info *raw;
-	unsigned int default_size;
+	unsigned int mb_width, mb_height, default_size;
 	int i, extra;
 
 	mfc_set_linear_stride_size(ctx, ctx->src_fmt);
 
 	raw = &ctx->raw_buf;
 	raw->total_plane_size = 0;
+	mb_width = WIDTH_MB(ctx->img_width);
+	mb_height = HEIGHT_MB(ctx->img_height);
 	extra = MFC_LINEAR_BUF_SIZE;
-	default_size = ctx->mb_width * ctx->mb_height * 256;
+	default_size = mb_width * mb_height * 256;
 
 	for (i = 0; i < raw->num_planes; i++) {
 		raw->plane_size[i] = 0;
@@ -575,7 +576,7 @@ void mfc_core_idle_checker(struct timer_list *t)
 
 	mfc_core_debug(5, "[MFCIDLE] MFC HW idle checker is ticking!\n");
 
-	if (dev->debugfs.perf_boost_mode) {
+	if (perf_boost_mode) {
 		mfc_core_info("[QoS][BOOST][MFCIDLE] skip control\n");
 		return;
 	}
@@ -592,17 +593,18 @@ void mfc_core_idle_checker(struct timer_list *t)
 		return;
 	}
 
-	if (mfc_core_is_work_to_do(core)) {
-		MFC_TRACE_CORE("[MFCIDLE] there is work to do\n");
-		queue_work(core->butler_wq, &core->butler_work);
+	if (atomic_read(&core->hw_run_cnt)) {
 		mfc_core_idle_checker_start_tick(core);
 		return;
 	}
 
-	if (!atomic_read(&core->hw_run_bits) && !atomic_read(&core->dev->queued_bits))
-		mfc_core_change_idle_mode(core, MFC_IDLE_MODE_RUNNING);
+	if (atomic_read(&core->dev->queued_cnt)) {
+		mfc_core_idle_checker_start_tick(core);
+		return;
+	}
 
 #ifdef CONFIG_MFC_USE_BUS_DEVFREQ
+	mfc_core_change_idle_mode(core, MFC_IDLE_MODE_RUNNING);
 	queue_work(core->mfc_idle_wq, &core->mfc_idle_work);
 #endif
 }

@@ -38,7 +38,7 @@ static int mfc_enc_queue_setup(struct vb2_queue *vq,
 	mfc_debug_enter();
 
 	/* Encoder works only single core */
-	core = mfc_get_main_core_lock(dev, ctx);
+	core = mfc_get_master_core_wait(dev, ctx);
 	core_ctx = core->core_ctx[ctx->num];
 
 	if (core_ctx->state != MFCINST_GOT_INST &&
@@ -279,7 +279,9 @@ static void mfc_enc_buf_finish(struct vb2_buffer *vb)
 	struct mfc_buf *buf = vb_to_mfc_buf(vb);
 	struct vb2_queue *vq = vb->vb2_queue;
 	struct mfc_ctx *ctx = vq->drv_priv;
+	struct mfc_dev *dev = ctx->dev;
 	unsigned int index = vb->index;
+	int i;
 
 	if (vq->type == V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE) {
 		/* Copy to dst buffer flag */
@@ -292,6 +294,9 @@ static void mfc_enc_buf_finish(struct vb2_buffer *vb)
 			mfc_ctx_err("failed in to_ctx_ctrls\n");
 
 		mfc_mem_buf_finish(vb, 1);
+
+		vb2_dma_sg_set_map_attr(vb->planes[0].mem_priv, DMA_ATTR_SKIP_LAZY_UNMAP);
+		mfc_debug(4, "[LAZY_UNMAP] skip for dst\n");
 	} else if (vq->type == V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE) {
 		/* Copy to src buffer flag */
 		call_cop(ctx, get_buf_update_val, ctx, &ctx->src_ctrls[index],
@@ -301,6 +306,14 @@ static void mfc_enc_buf_finish(struct vb2_buffer *vb)
 
 		if (call_cop(ctx, to_ctx_ctrls, ctx, &ctx->src_ctrls[index]) < 0)
 			mfc_ctx_err("failed in to_ctx_ctrls\n");
+
+		if (dev->skip_lazy_unmap || ctx->skip_lazy_unmap) {
+			for (i = 0; i < ctx->src_fmt->mem_planes; i++) {
+				vb2_dma_sg_set_map_attr(vb->planes[i].mem_priv,
+							DMA_ATTR_SKIP_LAZY_UNMAP);
+				mfc_debug(4, "[LAZY_UNMAP] skip for src plane[%d]\n", i);
+			}
+		}
 	}
 }
 
@@ -335,7 +348,7 @@ static int mfc_enc_start_streaming(struct vb2_queue *q, unsigned int count)
 	struct mfc_core_ctx *core_ctx;
 
 	/* Encoder works only single core */
-	core = mfc_get_main_core_lock(dev, ctx);
+	core = mfc_get_master_core_wait(dev, ctx);
 	core_ctx = core->core_ctx[ctx->num];
 
 	if (q->type == V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE &&
@@ -382,7 +395,7 @@ static void mfc_enc_buf_queue(struct vb2_buffer *vb)
 
 		/* Mark destination as available for use by MFC */
 		mfc_add_tail_buf(ctx, &ctx->dst_buf_queue, buf);
-		if (dev->debugfs.meminfo_enable == 1)
+		if (meminfo_enable == 1)
 			mfc_meminfo_add_outbuf(ctx,vb);
 		mfc_rm_qos_control(ctx, MFC_QOS_TRIGGER);
 	} else if (vq->type == V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE) {
@@ -391,10 +404,10 @@ static void mfc_enc_buf_queue(struct vb2_buffer *vb)
 					ctx->num, vb->index, i, buf->addr[0][i]);
 		mfc_add_tail_buf(ctx, &ctx->src_buf_ready_queue, buf);
 
-		if (dev->debugfs.debug_ts == 1)
+		if (debug_ts == 1)
 			mfc_ctx_info("[TS] framerate: %ld, timestamp: %lld\n",
 					ctx->framerate, buf->vb.vb2_buf.timestamp);
-		if (dev->debugfs.meminfo_enable == 1)
+		if (meminfo_enable == 1)
 			mfc_meminfo_add_inbuf(ctx, vb);
 
 		mfc_qos_update_last_framerate(ctx, buf->vb.vb2_buf.timestamp);
@@ -408,7 +421,7 @@ static void mfc_enc_buf_queue(struct vb2_buffer *vb)
 	mfc_debug_leave();
 }
 
-const struct vb2_ops mfc_enc_qops = {
+struct vb2_ops mfc_enc_qops = {
 	.queue_setup		= mfc_enc_queue_setup,
 	.wait_prepare		= mfc_enc_unlock,
 	.wait_finish		= mfc_enc_lock,

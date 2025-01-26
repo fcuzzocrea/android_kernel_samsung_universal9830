@@ -37,7 +37,7 @@ static void __mfc_dump_info_and_stop_hw_debug(struct mfc_dev *dev)
 {
 	struct mfc_core *core = dev->core[0];
 
-	if (!dev->pdata->debug_mode && !dev->debugfs.debug_mode_en)
+	if (!dev->pdata->debug_mode && !debug_mode_en)
 		return;
 
 	call_dop(core, dump_and_stop_debug_mode, core);

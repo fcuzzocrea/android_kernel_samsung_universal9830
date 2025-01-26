@@ -354,7 +354,6 @@ void mfc_core_dbg_enable(struct mfc_core *core);
 void mfc_core_dbg_disable(struct mfc_core *core);
 void mfc_core_dbg_set_addr(struct mfc_core *core);
 
-#if IS_ENABLED(CONFIG_MFC_USES_OTF)
 void mfc_core_otf_set_frame_addr(struct mfc_core *core, struct mfc_ctx *ctx,
 		int num_planes);
 void mfc_core_otf_set_stream_size(struct mfc_core *core, struct mfc_ctx *ctx,
@@ -363,7 +362,6 @@ void mfc_core_otf_set_votf_index(struct mfc_core *core, struct mfc_ctx *ctx,
 		int job_id);
 void mfc_core_otf_set_hwfc_index(struct mfc_core *core, struct mfc_ctx *ctx,
 		int job_id);
-#endif
 
 unsigned int mfc_get_frame_error_type(struct mfc_ctx *ctx, unsigned int err);
 

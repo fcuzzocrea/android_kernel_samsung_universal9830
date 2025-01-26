@@ -151,11 +151,6 @@ struct mfc_buf *mfc_get_del_if_consumed(struct mfc_ctx *ctx, struct mfc_buf_queu
 	if (exceed == true)
 		mfc_ctx_err("[MULTIFRAME] consumed size exceeded the total remained size\n");
 
-	if (remained && IS_MULTI_MODE(ctx)) {
-		mfc_ctx_info("[2CORE][MULTIFRAME] multicore mode couldn't handle multiframe\n");
-		remained = 0;
-	}
-
 	if ((consumed > 0) && (remained > min_bytes)
 			&& (IS_NO_ERROR(error)) && (exceed == false)) {
 		/* do not delete from queue */
@@ -468,100 +463,6 @@ void mfc_move_buf_all(struct mfc_ctx *ctx, struct mfc_buf_queue *to_queue,
 
 	INIT_LIST_HEAD(&from_queue->head);
 	from_queue->count = 0;
-
-	spin_unlock_irqrestore(&ctx->buf_queue_lock, flags);
-}
-
-void mfc_return_buf_to_ready_queue(struct mfc_ctx *ctx, struct mfc_buf_queue *maincore_queue,
-		struct mfc_buf_queue *subcore_queue)
-{
-	struct mfc_dev *dev = ctx->dev;
-	struct mfc_buf_queue *to_queue = &ctx->src_buf_ready_queue;
-	struct mfc_buf_queue *first_queue, *second_queue;
-	unsigned long flags;
-	struct mfc_buf *mfc_buf = NULL;
-	int maincore_src_index = -1, subcore_src_index = -1;
-
-	spin_lock_irqsave(&ctx->buf_queue_lock, flags);
-
-	if (list_empty(&maincore_queue->head) && list_empty(&subcore_queue->head)) {
-		mfc_debug(2, "all src queue of core_ctx is empty\n");
-		spin_unlock_irqrestore(&ctx->buf_queue_lock, flags);
-		return;
-	}
-
-	/* Search the last distributed src index */
-	if (!list_empty(&maincore_queue->head)) {
-		mfc_buf = list_entry(maincore_queue->head.prev, struct mfc_buf, list);
-		maincore_src_index = mfc_buf->src_index;
-		mfc_debug(4, "maincore src last buf src index: %d\n", maincore_src_index);
-	}
-	if (!list_empty(&subcore_queue->head)) {
-		mfc_buf = list_entry(subcore_queue->head.prev, struct mfc_buf, list);
-		subcore_src_index = mfc_buf->src_index;
-		mfc_debug(4, "subcore src last buf src index: %d\n", subcore_src_index);
-	}
-
-	MFC_TRACE_RM("[c:%d] last src index maincore %d subcore %d\n",
-			ctx->num, maincore_src_index, subcore_src_index);
-
-	/* Select the core_ctx->src_buf_queue to take out first */
-	if (maincore_src_index > subcore_src_index) {
-		first_queue = maincore_queue;
-		second_queue = subcore_queue;
-		mfc_debug(2, "last src index (maincore:%d, subcore:%d) move first maincore\n",
-				maincore_src_index, subcore_src_index);
-	} else {
-		first_queue = subcore_queue;
-		second_queue = maincore_queue;
-		mfc_debug(2, "last src index (maincore:%d, subcore:%d) move first subcore\n",
-				maincore_src_index, subcore_src_index);
-	}
-
-	/* Src index is sequentially returned to ready_queue */
-	while (1) {
-		if (!list_empty(&first_queue->head)) {
-			mfc_buf = list_entry(first_queue->head.prev, struct mfc_buf, list);
-
-			list_del(&mfc_buf->list);
-			first_queue->count--;
-
-			list_add(&mfc_buf->list, &to_queue->head);
-			to_queue->count++;
-			mfc_debug(2, "first queue src[%d] move\n", mfc_buf->src_index);
-			MFC_TRACE_RM("[c:%d] first queue src[%d] move\n", ctx->num,
-					mfc_buf->src_index);
-		}
-
-		if (!list_empty(&second_queue->head)) {
-			mfc_buf = list_entry(second_queue->head.prev, struct mfc_buf, list);
-
-			list_del(&mfc_buf->list);
-			second_queue->count--;
-
-			list_add(&mfc_buf->list, &to_queue->head);
-			to_queue->count++;
-			mfc_debug(2, "second queue src[%d] move\n", mfc_buf->src_index);
-			MFC_TRACE_RM("[c:%d] second queue src[%d] move\n", ctx->num,
-					mfc_buf->src_index);
-		}
-
-		if (list_empty(&first_queue->head) && list_empty(&second_queue->head)) {
-			mfc_debug(2, "all src of core_ctx return to ready_queue\n");
-			mfc_debug(2, "ready %d maincore %d subcore %d\n",
-					to_queue->count, maincore_queue->count,
-					subcore_queue->count);
-			MFC_TRACE_RM("[c:%d] all src return to ready\n", ctx->num);
-			MFC_TRACE_RM("[c:%d] ready %d maincore %d subcore %d\n", ctx->num,
-					to_queue->count, maincore_queue->count,
-					subcore_queue->count);
-			INIT_LIST_HEAD(&first_queue->head);
-			first_queue->count = 0;
-			INIT_LIST_HEAD(&second_queue->head);
-			second_queue->count = 0;
-			break;
-		}
-	}
 
 	spin_unlock_irqrestore(&ctx->buf_queue_lock, flags);
 }
@@ -902,14 +803,12 @@ void __mfc_update_base_addr_dpb(struct mfc_ctx *ctx, struct mfc_buf *buf,
 			index, buf->addr[0][0], buf->addr[0][1], buf->addr[0][2]);
 }
 
-int __mfc_update_dpb_fd(struct mfc_ctx *ctx, struct vb2_buffer *vb, int index)
+void __mfc_update_dpb_fd(struct mfc_ctx *ctx, struct vb2_buffer *vb, int index)
 {
 	struct mfc_dec *dec = ctx->dec_priv;
 
-	if (dec->dpb[index].queued) {
-		mfc_ctx_err("[REFINFO] DPB[%d] is already queued\n", index);
-		return -EINVAL;
-	}
+	if ((dec->dynamic_used & (1UL << index)) == 0)
+		mfc_ctx_err("[REFINFO] non-reference DPB is remained in table\n");
 
 	if (dec->dpb[index].fd[0] == vb->planes[0].m.fd)
 		mfc_debug(3, "[REFINFO] same dma_buf has same fd\n");
@@ -918,8 +817,6 @@ int __mfc_update_dpb_fd(struct mfc_ctx *ctx, struct vb2_buffer *vb, int index)
 	mfc_debug(3, "[REFINFO] index %d update fd: %d -> %d after release\n",
 			vb->index, dec->dpb[index].fd[0],
 			dec->dpb[index].new_fd);
-
-	return 0;
 }
 
 /* Add dst buffer in dst_buf_queue */
@@ -929,7 +826,7 @@ void mfc_store_dpb(struct mfc_ctx *ctx, struct vb2_buffer *vb)
 	struct mfc_dec *dec;
 	struct mfc_buf *mfc_buf;
 	unsigned long flags;
-	int index, plane, ret = 0;
+	int index, plane;
 
 	dec = ctx->dec_priv;
 	if (!dec) {
@@ -946,17 +843,6 @@ void mfc_store_dpb(struct mfc_ctx *ctx, struct vb2_buffer *vb)
 			vb->index, mfc_buf->dpb_index, mfc_buf->addr[0][0], dec->dynamic_used);
 
 	index = mfc_buf->dpb_index;
-	if (index > dec->last_dpb_max_index) {
-		mfc_debug(3, "[DPB] last dpb max index update %d -> %d\n",
-				dec->last_dpb_max_index, index);
-		if (index > (dec->last_dpb_max_index + 1)) {
-			mfc_ctx_err("[DPB] wrong dpb max index: %d max: %d\n",
-					index, dec->last_dpb_max_index);
-			MFC_TRACE_CTX("wrong dpb max index: %d max: %d\n",
-					index, dec->last_dpb_max_index);
-		}
-		dec->last_dpb_max_index = index;
-	}
 
 	if (!dec->dpb[index].mapcnt) {
 		mfc_get_iovmm(ctx, vb, dec->dpb);
@@ -964,43 +850,12 @@ void mfc_store_dpb(struct mfc_ctx *ctx, struct vb2_buffer *vb)
 		if (dec->dpb[index].paddr == mfc_buf->paddr) {
 			mfc_debug(2, "[DPB] DPB[%d] is same %#llx(used: %#lx)\n",
 					index, dec->dpb[index].paddr, dec->dynamic_used);
-			ret = __mfc_update_dpb_fd(ctx, vb, index);
+			__mfc_update_dpb_fd(ctx, vb, index);
 		} else {
 			mfc_ctx_err("[DPB] wrong assign dpb index\n");
 			call_dop(dev, dump_and_stop_debug_mode, dev);
 		}
 	}
-
-	if (ret) {
-		/*
-		 * Handling exception case that
-		 * the queued buffer is same with already queued buffer's paddr.
-		 * Driver cannot use that buffer so moves it to dst_buf_err_queue
-		 * and will dequeue in ISR.
-		 */
-		mutex_unlock(&dec->dpb_mutex);
-
-		spin_lock_irqsave(&ctx->buf_queue_lock, flags);
-
-		list_add_tail(&mfc_buf->list, &ctx->dst_buf_err_queue.head);
-		ctx->dst_buf_err_queue.count++;
-		mfc_debug(2, "[DPB] DPB[%d][%d] fd: %d will be not used %#llx %s %s (%d)\n",
-				mfc_buf->vb.vb2_buf.index, index,
-				mfc_buf->vb.vb2_buf.planes[0].m.fd, mfc_buf->addr[0][0],
-				(dec->dynamic_used & (1UL << index)) ? "ref" : "no-ref",
-				dec->dpb[index].queued ? "q" : "dq",
-				ctx->dst_buf_err_queue.count);
-		MFC_TRACE_CTX("unused DPB[%d][%d] fd: %d %#llx %s %s (%d)\n",
-				mfc_buf->vb.vb2_buf.index, index,
-				mfc_buf->vb.vb2_buf.planes[0].m.fd, mfc_buf->addr[0][0],
-				(dec->dynamic_used & (1UL << index)) ? "ref" : "no-ref",
-				dec->dpb[index].queued ? "q" : "dq",
-				ctx->dst_buf_err_queue.count);
-
-		spin_unlock_irqrestore(&ctx->buf_queue_lock, flags);
-		return;
-	}
-
 	__mfc_update_base_addr_dpb(ctx, mfc_buf, index);
 
 	dec->dpb[index].size = 0;

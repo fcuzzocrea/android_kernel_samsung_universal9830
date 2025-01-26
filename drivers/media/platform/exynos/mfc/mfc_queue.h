@@ -134,8 +134,6 @@ struct mfc_buf *mfc_find_del_buf(struct mfc_ctx *ctx, struct mfc_buf_queue *queu
 
 void mfc_move_buf_all(struct mfc_ctx *ctx, struct mfc_buf_queue *to_queue,
 		struct mfc_buf_queue *from_queue, enum mfc_queue_top_type top);
-void mfc_return_buf_to_ready_queue(struct mfc_ctx *ctx, struct mfc_buf_queue *maincore_queue,
-		struct mfc_buf_queue *subcore_queue);
 
 void mfc_cleanup_queue(spinlock_t *plock, struct mfc_buf_queue *queue);
 

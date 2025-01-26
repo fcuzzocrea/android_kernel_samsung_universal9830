@@ -21,6 +21,28 @@
 
 #include "mfc_queue.h"
 
+unsigned int debug_level;
+unsigned int debug_ts;
+unsigned int debug_mode_en;
+unsigned int dbg_enable;
+unsigned int nal_q_dump;
+unsigned int nal_q_disable;
+unsigned int nal_q_parallel_disable;
+unsigned int otf_dump;
+unsigned int perf_measure_option;
+unsigned int sfr_dump;
+unsigned int llc_disable;
+unsigned int perf_boost_mode;
+unsigned int drm_predict_disable;
+unsigned int reg_test;
+unsigned int meminfo_enable;
+unsigned int memlog_level = 2;
+unsigned int logging_option = MFC_LOGGING_ALL;
+unsigned int feature_option;
+unsigned int regression_option;
+unsigned int core_balance;
+unsigned int sbwc_disable;
+
 static int __mfc_info_show(struct seq_file *s, void *unused)
 {
 	struct mfc_dev *dev = s->private;
@@ -33,9 +55,9 @@ static int __mfc_info_show(struct seq_file *s, void *unused)
 	seq_puts(s, ">>> MFC common device information\n");
 	seq_printf(s, " [DEBUG MODE] dt: %s sysfs: %s\n",
 			dev->pdata->debug_mode ? "enabled" : "disabled",
-			dev->debugfs.debug_mode_en ? "enabled" : "disabled");
+			debug_mode_en ? "enabled" : "disabled");
 	seq_printf(s, " [PERF BOOST] %s\n",
-			dev->debugfs.perf_boost_mode ? "enabled" : "disabled");
+			perf_boost_mode ? "enabled" : "disabled");
 	seq_printf(s, " [FEATURES] nal_q: %d(0x%x), skype: %d(0x%x), black_bar: %d(0x%x)\n",
 			dev->pdata->nal_q.support, dev->pdata->nal_q.version,
 			dev->pdata->skype.support, dev->pdata->skype.version,
@@ -68,11 +90,10 @@ static int __mfc_info_show(struct seq_file *s, void *unused)
 		seq_printf(s, " [VERSION] H/W: v%x, F/W: %06x(%c), DRV: %d\n",
 				core->core_pdata->ip_ver, core->fw.date,
 				core->fw.fimv_info, MFC_DRIVER_INFO);
-		seq_printf(s, " [PM] power: %d, clock: %d, clk_get %s, QoS level: %d\n",
+		seq_printf(s, " [PM] power: %d, clock: %d, clk_get %s\n",
 				mfc_core_pm_get_pwr_ref_cnt(core),
 				mfc_core_pm_get_clk_ref_cnt(core),
-				IS_ERR(core->pm.clock) ? "failed" : "succeeded",
-				atomic_read(&core->qos_req_cur) - 1);
+				IS_ERR(core->pm.clock) ? "failed" : "succeeded");
 		seq_printf(s, " [CTX] num_inst: %d, num_drm_inst: %d, curr_ctx: %d(is_drm: %d)\n",
 				core->num_inst, core->num_drm_inst,
 				core->curr_core_ctx,
@@ -106,26 +127,16 @@ static int __mfc_info_show(struct seq_file *s, void *unused)
 			else
 				codec_name = ctx->dst_fmt->name;
 
-#if IS_ENABLED(CONFIG_EXYNOS_THERMAL_V2)
-			seq_printf(s, "  [CTX:%d] %s %s, %s, %s, size: %dx%d@%ldfps(tmu: %dfps, op: %ldfps), crop: %d %d %d %d\n",
-#else
-			seq_printf(s, "  [CTX:%d] %s %s, %s, %s, size: %dx%d@%ldfps(op: %ldfps), crop: %d %d %d %d\n",
-#endif
+			seq_printf(s, "  [CTX:%d] %s %s, %s, %s, size: %dx%d, crop: %d %d %d %d\n",
 				ctx->num,
 				ctx->type == MFCINST_DECODER ? "DEC" : "ENC",
 				ctx->is_drm ? "Secure" : "Normal",
 				ctx->src_fmt->name, ctx->dst_fmt->name,
 				ctx->img_width, ctx->img_height,
-				ctx->last_framerate / 1000,
-#if IS_ENABLED(CONFIG_EXYNOS_THERMAL_V2)
-				ctx->dev->tmu_fps,
-#endif
-				ctx->operating_framerate,
 				ctx->crop_width, ctx->crop_height,
 				ctx->crop_left, ctx->crop_top);
-			seq_printf(s, "        main core: %d, op_mode: %d(stream: %d), queue(src: %d, dst: %d, src_nal: %d, dst_nal: %d, ref: %d)\n",
-				ctx->op_core_num[MFC_CORE_MAIN],
-				ctx->op_mode, ctx->stream_op_mode,
+			seq_printf(s, "        master core-%d, op_mode: %d, queue(src: %d, dst: %d, src_nal: %d, dst_nal: %d, ref: %d)\n",
+				ctx->op_core_num[MFC_CORE_MASTER], ctx->op_mode,
 				mfc_get_queue_count(&ctx->buf_queue_lock, &ctx->src_buf_ready_queue),
 				mfc_get_queue_count(&ctx->buf_queue_lock, &ctx->dst_buf_queue),
 				mfc_get_queue_count(&ctx->buf_queue_lock, &ctx->src_buf_nal_queue),
@@ -190,7 +201,7 @@ static int __mfc_reg_info_show(struct seq_file *s, void *unused)
 
 	seq_puts(s, ">> MFC REG test(encoder)\n");
 
-	seq_printf(s, "-----Register test on/off: %s\n", dev->debugfs.reg_test ? "on" : "off");
+	seq_printf(s, "-----Register test on/off: %s\n", reg_test ? "on" : "off");
 	seq_printf(s, "-----Register number: %d\n", dev->reg_cnt);
 
 	if (dev->reg_val) {
@@ -298,7 +309,7 @@ static int __mfc_meminfo_show(struct seq_file *s, void *unused)
 	size_t total = 0, total_max = 0;
 	int i, num;
 
-	if (!dev->debugfs.meminfo_enable) {
+	if (!meminfo_enable) {
 		seq_puts(s, "meminfo_enable is not set. ""echo 1 > meminfo_enable""\n");
 		return 0;
 	}
@@ -377,12 +388,12 @@ static int __mfc_regression_result_show(struct seq_file *s, void *unused)
 
 	if (dev->regression_val) {
 		for (i = 0; i < dev->regression_cnt; i++) {
-			if (dev->debugfs.regression_option & MFC_TEST_ENC_QP)
+			if (regression_option & MFC_TEST_ENC_QP)
 				seq_printf(s, "%d ", dev->regression_val[i]);
 			else
 				seq_printf(s, "%08x ", dev->regression_val[i]);
 			if ((dev->regression_val[i] == 0xDEADC0DE) ||
-				(dev->debugfs.regression_option & MFC_TEST_ENC_QP))
+				(regression_option & MFC_TEST_ENC_QP))
 				seq_printf(s, "\n");
 		}
 	} else {
@@ -457,61 +468,58 @@ void mfc_init_debugfs(struct mfc_dev *dev)
 		return;
 	}
 
-	dev->debugfs.memlog_level = MFC_DEFAULT_MEMLOG_LEVEL;
-	dev->debugfs.logging_option = MFC_DEFAULT_LOGGING_OPTION;
-
-	debugfs->d_mfc_info = debugfs_create_file("mfc_info",
+	debugfs->mfc_info = debugfs_create_file("mfc_info",
 			0444, debugfs->root, dev, &mfc_info_fops);
-	debugfs->d_debug_info = debugfs_create_file("debug_info",
+	debugfs->debug_info = debugfs_create_file("debug_info",
 			0444, debugfs->root, dev, &debug_info_fops);
 #ifdef CONFIG_MFC_REG_TEST
-	debugfs->d_reg_info = debugfs_create_file("reg_info",
+	debugfs->reg_info = debugfs_create_file("reg_info",
 			0644, debugfs->root, dev, &reg_info_fops);
-	debugfs->d_reg_test = debugfs_create_u32("reg_test",
-			0644, debugfs->root, &dev->debugfs.reg_test);
+	debugfs->reg_test = debugfs_create_u32("reg_test",
+			0644, debugfs->root, &reg_test);
 #endif
-	debugfs->d_regression_option = debugfs_create_u32("regression_option",
-			0644, debugfs->root, &dev->debugfs.regression_option);
-	debugfs->d_regression_result = debugfs_create_file("regression_result",
+	debugfs->regression_option = debugfs_create_u32("regression_option",
+			0644, debugfs->root, &regression_option);
+	debugfs->regression_result = debugfs_create_file("regression_result",
 			0444, debugfs->root, dev, &regression_result_fops);
-	debugfs->d_debug_level = debugfs_create_u32("debug",
-			0644, debugfs->root, &dev->debugfs.debug_level);
-	debugfs->d_debug_ts = debugfs_create_u32("debug_ts",
-			0644, debugfs->root, &dev->debugfs.debug_ts);
-	debugfs->d_debug_mode_en = debugfs_create_u32("debug_mode_en",
-			0644, debugfs->root, &dev->debugfs.debug_mode_en);
-	debugfs->d_dbg_enable = debugfs_create_u32("dbg_enable",
-			0644, debugfs->root, &dev->debugfs.dbg_enable);
-	debugfs->d_nal_q_dump = debugfs_create_u32("nal_q_dump",
-			0644, debugfs->root, &dev->debugfs.nal_q_dump);
-	debugfs->d_nal_q_disable = debugfs_create_u32("nal_q_disable",
-			0644, debugfs->root, &dev->debugfs.nal_q_disable);
-	debugfs->d_nal_q_parallel_disable = debugfs_create_u32("nal_q_parallel_disable",
-			0644, debugfs->root, &dev->debugfs.nal_q_parallel_disable);
-	debugfs->d_otf_dump = debugfs_create_u32("otf_dump",
-			0644, debugfs->root, &dev->debugfs.otf_dump);
-	debugfs->d_perf_measure_option = debugfs_create_u32("perf_measure_option",
-			0644, debugfs->root, &dev->debugfs.perf_measure_option);
-	debugfs->d_sfr_dump = debugfs_create_u32("sfr_dump",
-			0644, debugfs->root, &dev->debugfs.sfr_dump);
-	debugfs->d_llc_disable = debugfs_create_u32("llc_disable",
-			0644, debugfs->root, &dev->debugfs.llc_disable);
-	debugfs->d_perf_boost_mode = debugfs_create_u32("perf_boost_mode",
-			0644, debugfs->root, &dev->debugfs.perf_boost_mode);
-	debugfs->d_drm_predict_disable = debugfs_create_u32("drm_predict_disable",
-			0644, debugfs->root, &dev->debugfs.drm_predict_disable);
-	debugfs->d_meminfo = debugfs_create_file("meminfo",
+	debugfs->debug_level = debugfs_create_u32("debug",
+			0644, debugfs->root, &debug_level);
+	debugfs->debug_ts = debugfs_create_u32("debug_ts",
+			0644, debugfs->root, &debug_ts);
+	debugfs->debug_mode_en = debugfs_create_u32("debug_mode_en",
+			0644, debugfs->root, &debug_mode_en);
+	debugfs->dbg_enable = debugfs_create_u32("dbg_enable",
+			0644, debugfs->root, &dbg_enable);
+	debugfs->nal_q_dump = debugfs_create_u32("nal_q_dump",
+			0644, debugfs->root, &nal_q_dump);
+	debugfs->nal_q_disable = debugfs_create_u32("nal_q_disable",
+			0644, debugfs->root, &nal_q_disable);
+	debugfs->nal_q_parallel_disable = debugfs_create_u32("nal_q_parallel_disable",
+			0644, debugfs->root, &nal_q_parallel_disable);
+	debugfs->otf_dump = debugfs_create_u32("otf_dump",
+			0644, debugfs->root, &otf_dump);
+	debugfs->perf_measure_option = debugfs_create_u32("perf_measure_option",
+			0644, debugfs->root, &perf_measure_option);
+	debugfs->sfr_dump = debugfs_create_u32("sfr_dump",
+			0644, debugfs->root, &sfr_dump);
+	debugfs->llc_disable = debugfs_create_u32("llc_disable",
+			0644, debugfs->root, &llc_disable);
+	debugfs->perf_boost_mode = debugfs_create_u32("perf_boost_mode",
+			0644, debugfs->root, &perf_boost_mode);
+	debugfs->drm_predict_disable = debugfs_create_u32("drm_predict_disable",
+			0644, debugfs->root, &drm_predict_disable);
+	debugfs->meminfo = debugfs_create_file("meminfo",
 			0444, debugfs->root, dev, &mfc_meminfo_fops);
-	debugfs->d_meminfo_enable = debugfs_create_u32("meminfo_enable",
-			0644, debugfs->root, &dev->debugfs.meminfo_enable);
-	debugfs->d_feature_option = debugfs_create_u32("feature_option",
-			0644, debugfs->root, &dev->debugfs.feature_option);
-	debugfs->d_core_balance = debugfs_create_u32("core_balance",
-			0644, debugfs->root, &dev->debugfs.core_balance);
-	debugfs->d_memlog_level = debugfs_create_u32("memlog_level",
-			0644, debugfs->root, &dev->debugfs.memlog_level);
-	debugfs->d_logging_option = debugfs_create_u32("logging_option",
-			0644, debugfs->root, &dev->debugfs.logging_option);
-	debugfs->d_sbwc_disable = debugfs_create_u32("sbwc_disable",
-			0644, debugfs->root, &dev->debugfs.sbwc_disable);
+	debugfs->meminfo_enable = debugfs_create_u32("meminfo_enable",
+			0644, debugfs->root, &meminfo_enable);
+	debugfs->feature_option = debugfs_create_u32("feature_option",
+			0644, debugfs->root, &feature_option);
+	debugfs->core_balance = debugfs_create_u32("core_balance",
+			0644, debugfs->root, &core_balance);
+	debugfs->memlog_level = debugfs_create_u32("memlog_level",
+			0644, debugfs->root, &memlog_level);
+	debugfs->logging_option = debugfs_create_u32("logging_option",
+			0644, debugfs->root, &logging_option);
+	debugfs->sbwc_disable = debugfs_create_u32("sbwc_disable",
+			0644, debugfs->root, &sbwc_disable);
 }

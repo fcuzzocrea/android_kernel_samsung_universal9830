@@ -25,10 +25,11 @@
 
 static inline void __mfc_print_hwlock(struct mfc_core *core)
 {
-	mfc_core_debug(3, "hwlock.dev = 0x%lx, bits = 0x%lx, owned_by_irq = %d, wl_count = %d, transfer_owner = %d\n",
+	mfc_core_debug(3, "hwlock.dev = 0x%lx, bits = 0x%lx, owned_by_irq = %d, wl_count = %d, transfer_owner = %d, migrate = %d\n",
 		core->hwlock.dev, core->hwlock.bits,
 		core->hwlock.owned_by_irq, core->hwlock.wl_count,
-		core->hwlock.transfer_owner);
+		core->hwlock.transfer_owner,
+		core->hwlock.migrate);
 }
 
 void mfc_core_init_hwlock(struct mfc_core *core)
@@ -97,6 +98,74 @@ static void __mfc_remove_listable_wq_ctx(struct mfc_core_ctx *core_ctx)
 	__mfc_print_hwlock(core);
 	spin_unlock_irqrestore(&core->hwlock.lock, flags);
 }
+
+int mfc_core_get_hwlock_dev_migrate(struct mfc_core *core, struct mfc_core_ctx *core_ctx)
+{
+	int ret = 0;
+	unsigned long flags;
+
+	mutex_lock(&core->hwlock_wq.wait_mutex);
+
+	spin_lock_irqsave(&core->hwlock.lock, flags);
+	__mfc_print_hwlock(core);
+
+	if (core->shutdown) {
+		mfc_core_info("Couldn't lock HW. Shutdown was called\n");
+		spin_unlock_irqrestore(&core->hwlock.lock, flags);
+		mutex_unlock(&core->hwlock_wq.wait_mutex);
+		return -EINVAL;
+	}
+
+	if ((core->hwlock.bits != 0) || (core->hwlock.dev != 0)) {
+		list_add_tail(&core->hwlock_wq.list, &core->hwlock.waiting_list);
+		core->hwlock.wl_count++;
+
+		spin_unlock_irqrestore(&core->hwlock.lock, flags);
+
+		mfc_core_debug(2, "Waiting for hwlock to be released\n");
+
+		ret = wait_event_timeout(core->hwlock_wq.wait_queue,
+			((core->hwlock.transfer_owner == 1) && (core->hwlock.dev == 1)),
+			msecs_to_jiffies(MFC_HWLOCK_TIMEOUT));
+
+		/* save migrate info */
+		core->hwlock.migrate = 1;
+		core->hwlock.mig_core_ctx = core_ctx;
+
+		core->hwlock.transfer_owner = 0;
+		__mfc_remove_listable_wq_core(core);
+		if (ret == 0) {
+			mfc_err("Woken up but timed out\n");
+			__mfc_print_hwlock(core);
+			mutex_unlock(&core->hwlock_wq.wait_mutex);
+			return -EIO;
+		}
+
+		mfc_core_debug(2, "Woken up and got hwlock for migrate\n");
+		__mfc_print_hwlock(core);
+		mutex_unlock(&core->hwlock_wq.wait_mutex);
+	} else {
+		/* save migrate info */
+		core->hwlock.migrate = 1;
+		core->hwlock.mig_core_ctx = core_ctx;
+
+		core->hwlock.bits = 0;
+		core->hwlock.dev = 1;
+		core->hwlock.owned_by_irq = 0;
+
+		mfc_core_debug(2, "got hwlock for migrate\n");
+		__mfc_print_hwlock(core);
+		spin_unlock_irqrestore(&core->hwlock.lock, flags);
+		mutex_unlock(&core->hwlock_wq.wait_mutex);
+	}
+
+	/* Stop NAL-Q after getting hwlock */
+	if (core->nal_q_handle)
+		mfc_core_nal_q_stop_if_started(core);
+
+	return 0;
+}
+
 
 /*
  * Return value description
@@ -169,6 +238,8 @@ int mfc_core_get_hwlock_dev(struct mfc_core *core)
 int mfc_core_get_hwlock_ctx(struct mfc_core_ctx *core_ctx)
 {
 	struct mfc_core *core = core_ctx->core;
+	struct mfc_ctx *ctx = core_ctx->ctx;
+	struct mfc_dev *dev = ctx->dev;
 	int ret = 0;
 	unsigned long flags;
 
@@ -182,6 +253,22 @@ int mfc_core_get_hwlock_ctx(struct mfc_core_ctx *core_ctx)
 		spin_unlock_irqrestore(&core->hwlock.lock, flags);
 		mutex_unlock(&core_ctx->hwlock_wq.wait_mutex);
 		return -EINVAL;
+	}
+
+	if (core->hwlock.migrate && core->hwlock.mig_core_ctx == core_ctx) {
+		mfc_core_info("Waiting for hwlock to be done migration\n");
+		spin_unlock_irqrestore(&core->hwlock.lock, flags);
+		ret = mfc_wait_for_done_ctx_migrate(dev, ctx);
+		if (!ret) {
+			__mfc_print_hwlock(core);
+
+			core = core_ctx->core;
+			spin_lock_irqsave(&core->hwlock.lock, flags);
+			mfc_core_debug(2, "Changed core to MFC-%d during get hwlock\n", core->id);
+			__mfc_print_hwlock(core);
+		} else {
+			mfc_core_debug(2, "Failed to migrate, keep use core MFC-%d\n", core->id);
+		}
 	}
 
 	if ((core->hwlock.bits != 0) || (core->hwlock.dev != 0)) {
@@ -240,6 +327,10 @@ void mfc_core_release_hwlock_dev(struct mfc_core *core)
 
 	spin_lock_irqsave(&core->hwlock.lock, flags);
 	__mfc_print_hwlock(core);
+
+	/* clear migrate info */
+	core->hwlock.migrate = 0;
+	core->hwlock.mig_core_ctx = NULL;
 
 	core->hwlock.dev = 0;
 	core->hwlock.owned_by_irq = 0;
@@ -698,12 +789,10 @@ static int __mfc_just_run_enc(struct mfc_core *core, struct mfc_ctx *ctx)
 		ret = mfc_core_run_enc_last_frames(core, ctx);
 		break;
 	case MFCINST_RUNNING:
-#if IS_ENABLED(CONFIG_MFC_USES_OTF)
 		if (ctx->otf_handle) {
 			ret = mfc_core_otf_run_enc_frame(core, ctx);
 			break;
 		}
-#endif
 		ret = mfc_core_run_enc_frame(core, ctx);
 		break;
 	case MFCINST_INIT:
@@ -713,12 +802,10 @@ static int __mfc_just_run_enc(struct mfc_core *core, struct mfc_ctx *ctx)
 		ret = mfc_core_cmd_close_inst(core, ctx);
 		break;
 	case MFCINST_GOT_INST:
-#if IS_ENABLED(CONFIG_MFC_USES_OTF)
 		if (ctx->otf_handle) {
 			ret = mfc_core_otf_run_enc_init(core, ctx);
 			break;
 		}
-#endif
 		ret = mfc_core_run_enc_init(core, ctx);
 		break;
 	case MFCINST_HEAD_PARSED:
@@ -750,7 +837,7 @@ int mfc_core_just_run(struct mfc_core *core, int new_ctx_index)
 	int drm_switch = 0;
 	int next_ctx_index;
 
-	mfc_core_idle_update_hw_run(core, ctx);
+	atomic_inc(&core->hw_run_cnt);
 
 	if (core_ctx->state == MFCINST_RUNNING)
 		mfc_clean_core_ctx_int_flags(core_ctx);
@@ -797,7 +884,7 @@ int mfc_core_just_run(struct mfc_core *core, int new_ctx_index)
 	}
 
 	if (!MFC_FEATURE_SUPPORT(dev, dev->pdata->drm_switch_predict)
-			|| dev->debugfs.drm_predict_disable) {
+			|| drm_predict_disable) {
 		if (drm_switch)
 			mfc_core_cache_flush(core, ctx->is_drm, MFC_CACHEFLUSH);
 	} else {
@@ -864,13 +951,10 @@ void mfc_core_hwlock_handler_irq(struct mfc_core *core, struct mfc_ctx *ctx,
 	struct mfc_core_ctx *core_ctx = core->core_ctx[ctx->num];
 	int new_ctx_index;
 	unsigned long flags;
-	int ret, need_butler = 0;
+	int ret;
 
 	spin_lock_irqsave(&core->hwlock.lock, flags);
 	__mfc_print_hwlock(core);
-
-	if ((core_ctx->state == MFCINST_RUNNING) && IS_TWO_MODE2(ctx))
-		need_butler = 1;
 
 	if (core->hwlock.owned_by_irq) {
 		if (core->preempt_core_ctx > MFC_NO_INSTANCE_SET) {
@@ -952,8 +1036,8 @@ void mfc_core_hwlock_handler_irq(struct mfc_core *core, struct mfc_ctx *ctx,
 		spin_unlock_irqrestore(&core->hwlock.lock, flags);
 	}
 
-	if (need_butler)
-		queue_work(core->dev->butler_wq, &core->dev->butler_work);
+	if (IS_TWO_MODE2(ctx) && (core_ctx->state == MFCINST_RUNNING))
+		queue_work(ctx->dev->butler_wq, &ctx->dev->butler_work);
 
 	__mfc_print_hwlock(core);
 }

@@ -36,7 +36,7 @@ int mfc_core_nal_q_check_enable(struct mfc_core *core)
 
 	mfc_core_debug_enter();
 
-	if (dev->debugfs.nal_q_disable)
+	if (nal_q_disable)
 		return 0;
 
 	for (i = 0; i < MFC_NUM_CONTEXTS; i++) {
@@ -103,8 +103,7 @@ int mfc_core_nal_q_check_enable(struct mfc_core *core)
 					mfc_core_debug(2, "[INTERLACE] There is a interlaced stream\n");
 					return 0;
 				}
-				if (dec->detect_black_bar ||
-					(dev->debugfs.feature_option & MFC_OPTION_BLACK_BAR_ENABLE)) {
+				if (dec->detect_black_bar || (feature_option & MFC_OPTION_BLACK_BAR_ENABLE)) {
 					core->nal_q_stop_cause |= (1 << NALQ_STOP_BLACK_BAR);
 					mfc_core_debug(2, "[BLACKBAR] black bar detection is enabled\n");
 					return 0;
@@ -563,7 +562,7 @@ static void __mfc_core_nal_q_set_slice_mode(struct mfc_ctx *ctx, EncoderInputStr
 	struct mfc_enc *enc = ctx->enc_priv;
 
 	/* multi-slice control */
-	if (enc->slice_mode == V4L2_MPEG_VIDEO_MULTI_SICE_MODE_MAX_BYTES)
+	if (enc->slice_mode == V4L2_MPEG_VIDEO_MULTI_SLICE_MODE_MAX_BYTES)
 		pInStr->MsliceMode = enc->slice_mode + 0x4;
 	else if (enc->slice_mode == V4L2_MPEG_VIDEO_MULTI_SLICE_MODE_MAX_MB_ROW)
 		pInStr->MsliceMode = enc->slice_mode - 0x2;
@@ -573,10 +572,10 @@ static void __mfc_core_nal_q_set_slice_mode(struct mfc_ctx *ctx, EncoderInputStr
 		pInStr->MsliceMode = enc->slice_mode;
 
 	/* multi-slice MB number or bit size */
-	if ((enc->slice_mode == V4L2_MPEG_VIDEO_MULTI_SICE_MODE_MAX_MB) ||
+	if ((enc->slice_mode == V4L2_MPEG_VIDEO_MULTI_SLICE_MODE_MAX_MB) ||
 			(enc->slice_mode == V4L2_MPEG_VIDEO_MULTI_SLICE_MODE_MAX_MB_ROW)) {
 		pInStr->MsliceSizeMb = enc->slice_size_mb;
-	} else if ((enc->slice_mode == V4L2_MPEG_VIDEO_MULTI_SICE_MODE_MAX_BYTES) ||
+	} else if ((enc->slice_mode == V4L2_MPEG_VIDEO_MULTI_SLICE_MODE_MAX_BYTES) ||
 			(enc->slice_mode == V4L2_MPEG_VIDEO_MULTI_SLICE_MODE_MAX_FIXED_BYTES)){
 		pInStr->MsliceSizeBits = enc->slice_size_bits;
 	} else {
@@ -692,7 +691,7 @@ static void __mfc_core_nal_q_get_hdr_plus_info(struct mfc_core *core, struct mfc
 				pOutStr->St2094_40sei[29] >> 1 & 0x3F;
 	}
 
-	if (dev->debugfs.debug_level >= 5)
+	if (debug_level >= 5)
 		mfc_core_print_hdr_plus_info(core, ctx, sei_meta);
 }
 
@@ -794,7 +793,7 @@ static void __mfc_core_nal_q_set_hdr_plus_info(struct mfc_core *core, struct mfc
 		}
 	}
 
-	if (dev->debugfs.debug_level >= 5)
+	if (debug_level >= 5)
 		mfc_core_print_hdr_plus_info(core, ctx, sei_meta);
 }
 
@@ -941,7 +940,7 @@ static void __mfc_core_nal_q_get_av1_film_grain_info(struct mfc_core *core, stru
 	__get_nal_q_av1_coeffs_info(core, ctx, pOutStr,
 		&sei_meta->ar_coeffs_cr_plus_128[0], AV1_FG_CHR_AR_COEF_SIZE, 35);
 
-	if (core->dev->debugfs.debug_level >= 5)
+	if (debug_level >= 5)
 		mfc_core_print_av1_film_grain_info(core, ctx, sei_meta);
 }
 
@@ -1080,9 +1079,9 @@ static int __mfc_core_nal_q_run_in_buf_enc(struct mfc_core *core, struct mfc_cor
 		}
 	}
 
-	if (mfc_check_mb_flag(src_mb, MFC_FLAG_ENC_SRC_FAKE)) {
-		enc->fake_src = 1;
-		mfc_debug(2, "[NALQ] src is fake\n");
+	if (mfc_check_mb_flag(src_mb, MFC_FLAG_ENC_SRC_DUMMY)) {
+		enc->dummy_src = 1;
+		mfc_debug(2, "[NALQ] src is dummy\n");
 	}
 
 	/* HDR10+ sei meta */
@@ -1190,7 +1189,7 @@ static int __mfc_core_nal_q_run_in_buf_dec(struct mfc_core *core, struct mfc_cor
 	if (dbuf_size < cpb_buf_size) {
 		mfc_ctx_info("[NALQ] Decrease buffer size: %u -> %u\n",
 				cpb_buf_size, dbuf_size);
-		cpb_buf_size = (unsigned int)dbuf_size;
+		cpb_buf_size = dbuf_size;
 	}
 
 	mfc_debug(2, "[NALQ][BUFINFO] ctx[%d] set src index: %d, addr: 0x%08llx\n",
@@ -1277,12 +1276,12 @@ static void __mfc_core_nal_q_handle_stream_copy_timestamp(struct mfc_ctx *ctx, s
 
 	start_timestamp = src_mb->vb.vb2_buf.timestamp;
 	interval = NSEC_PER_SEC / p->rc_framerate;
-	if (ctx->dev->debugfs.debug_ts == 1)
+	if (debug_ts == 1)
 		mfc_ctx_info("[NALQ][BUFCON][TS] %dfps, start timestamp: %lld, base interval: %lld\n",
 				p->rc_framerate, start_timestamp, interval);
 
 	new_timestamp = start_timestamp + (interval * src_mb->done_index);
-	if (ctx->dev->debugfs.debug_ts == 1)
+	if (debug_ts == 1)
 		mfc_ctx_info("[NALQ][BUFCON][TS] new timestamp: %lld, interval: %lld\n",
 				new_timestamp, interval * src_mb->done_index);
 
@@ -1309,10 +1308,10 @@ static void __mfc_core_nal_q_handle_stream_input(struct mfc_core_ctx *core_ctx,
 	if (enc_addr[0] == 0) {
 		mfc_debug(3, "[NALQ] no encoded src\n");
 
-		if (enc->fake_src && enc->params.num_b_frame) {
+		if (enc->dummy_src && enc->params.num_b_frame) {
 			mfc_change_state(core_ctx, MFCINST_FINISHING);
-			enc->fake_src = 0;
-			mfc_debug(2, "[NALQ] clear fake_src and change to FINISHING\n");
+			enc->dummy_src = 0;
+			mfc_debug(2, "[NALQ] clear dummy_src and change to FINISHING\n");
 		}
 
 		goto move_buf;
@@ -1454,8 +1453,7 @@ static void __mfc_core_nal_q_handle_stream_output(struct mfc_ctx *ctx, int slice
 	mfc_debug(2, "[NALQ][STREAM] Slice type flag: %d\n", dst_mb->vb.flags);
 
 	vb2_set_plane_payload(&dst_mb->vb.vb2_buf, 0, strm_size);
-	mfc_qos_update_bitrate(ctx, strm_size);
-	mfc_qos_update_framerate(ctx);
+	mfc_qos_update_framerate(ctx, strm_size);
 
 	index = dst_mb->vb.vb2_buf.index;
 	if (call_cop(ctx, get_buf_ctrls_val_nal_q_enc, ctx,
@@ -1532,50 +1530,6 @@ static void __mfc_core_nal_q_handle_reuse_buffer(struct mfc_ctx *ctx, DecoderOut
 	}
 }
 
-static void __mfc_core_nal_q_handle_frame_unused_output(struct mfc_ctx *ctx,
-			DecoderOutputStr *pOutStr)
-{
-	struct mfc_dec *dec = ctx->dec_priv;
-	struct mfc_buf *mfc_buf = NULL;
-	unsigned int index;
-
-	while (1) {
-		mfc_buf = mfc_get_del_buf(ctx, &ctx->dst_buf_err_queue, MFC_BUF_NO_TOUCH_USED);
-		if (!mfc_buf)
-			break;
-
-		index = mfc_buf->vb.vb2_buf.index;
-
-		mfc_clear_mb_flag(mfc_buf);
-		mfc_buf->vb.flags &= ~(V4L2_BUF_FLAG_KEYFRAME |
-					V4L2_BUF_FLAG_PFRAME |
-					V4L2_BUF_FLAG_BFRAME |
-					V4L2_BUF_FLAG_ERROR);
-
-		if (call_cop(ctx, get_buf_ctrls_val_nal_q_dec, ctx,
-					&ctx->dst_ctrls[index], pOutStr) < 0)
-			mfc_ctx_err("[NALQ] failed in get_buf_ctrls_val\n");
-
-		call_cop(ctx, get_buf_update_val, ctx,
-				&ctx->dst_ctrls[index],
-				V4L2_CID_MPEG_MFC51_VIDEO_DISPLAY_STATUS,
-				MFC_REG_DEC_STATUS_DECODING_ONLY);
-
-		call_cop(ctx, get_buf_update_val, ctx,
-				&ctx->dst_ctrls[index],
-				V4L2_CID_MPEG_MFC51_VIDEO_FRAME_TAG,
-				UNUSED_TAG);
-
-		dec->ref_buf[dec->refcnt].fd[0] = mfc_buf->vb.vb2_buf.planes[0].m.fd;
-		dec->refcnt++;
-
-		vb2_buffer_done(&mfc_buf->vb.vb2_buf, VB2_BUF_STATE_DONE);
-		mfc_debug(2, "[NALQ][DPB] dst index [%d][%d] fd: %d is buffer done (not used)\n",
-				mfc_buf->vb.vb2_buf.index, mfc_buf->dpb_index,
-				mfc_buf->vb.vb2_buf.planes[0].m.fd);
-	}
-}
-
 static void __mfc_core_nal_q_handle_frame_all_extracted(struct mfc_ctx *ctx, DecoderOutputStr *pOutStr)
 {
 	struct mfc_dec *dec = ctx->dec_priv;
@@ -1634,9 +1588,6 @@ static void __mfc_core_nal_q_handle_frame_all_extracted(struct mfc_ctx *ctx, Dec
 		mfc_debug(2, "[NALQ][DPB] Cleand up index = %d, used_flag = %#lx, queued = %#lx\n",
 				index, dec->dynamic_used, dec->queued_dpb);
 	}
-
-	/* dequeue unused DPB */
-	__mfc_core_nal_q_handle_frame_unused_output(ctx, pOutStr);
 
 	mfc_debug(2, "[NALQ] After cleanup\n");
 }
@@ -1715,6 +1666,7 @@ static struct mfc_buf *__mfc_core_nal_q_handle_frame_output_del(struct mfc_core 
 	unsigned int is_content_light = 0, is_display_colour = 0;
 	unsigned int is_hdr10_plus_sei = 0, is_av1_film_grain_sei = 0;
 	unsigned int is_disp_res_change = 0;
+	unsigned int disp_err;
 	unsigned int is_uncomp = 0;
 	int i, index, idr_flag;
 
@@ -1896,9 +1848,10 @@ static struct mfc_buf *__mfc_core_nal_q_handle_frame_output_del(struct mfc_core 
 				break;
 		}
 
-		if (mfc_get_warn(pOutStr->ErrorCode)) {
-			mfc_ctx_info("[NALQ] Warning for displayed frame: %d\n",
-					mfc_get_warn(pOutStr->ErrorCode));
+		disp_err = mfc_get_warn(pOutStr->ErrorCode);
+		if (disp_err) {
+			mfc_ctx_err("[NALQ] Warning for displayed frame: %d\n",
+					disp_err);
 			dst_mb->vb.flags |= V4L2_BUF_FLAG_ERROR;
 		}
 
@@ -2325,9 +2278,6 @@ void __mfc_core_nal_q_handle_frame(struct mfc_core *core, struct mfc_core_ctx *c
 	/* arrangement of assigned dpb table */
 	__mfc_core_nal_q_handle_released_buf(core, ctx, pOutStr);
 
-	/* dequeue unused DPB */
-	__mfc_core_nal_q_handle_frame_unused_output(ctx, pOutStr);
-
 	/* There is display buffer for user, update reference information */
 	if (mfc_buf) {
 		ref_info = &dec->ref_info[mfc_buf->vb.vb2_buf.index];
@@ -2374,9 +2324,11 @@ int __mfc_core_nal_q_handle_error(struct mfc_core *core, struct mfc_core_ctx *co
 
 	mfc_debug_enter();
 
+	mfc_err("[NALQ] Interrupt Error: %d\n", pOutStr->ErrorCode);
+
 	core->nal_q_stop_cause |= (1 << NALQ_EXCEPTION_ERROR);
 	core->nal_q_handle->nal_q_exception = 1;
-	mfc_ctx_info("[NALQ] nal_q_exception is set (error %d)\n", err);
+	mfc_ctx_info("[NALQ] nal_q_exception is set (error)\n");
 
 	if (ctx->type == MFCINST_DECODER) {
 		dec = ctx->dec_priv;
@@ -2417,10 +2369,6 @@ int __mfc_core_nal_q_handle_error(struct mfc_core *core, struct mfc_core_ctx *co
 		 * one input buffer is returned and the NAL-Q mode continues.
 		 */
 		if (err == MFC_REG_ERR_BUFFER_FULL) {
-			mfc_err("[NALQ] stream buffer size(%d) isn't enough, skip (Bitrate: %d)\n",
-				pOutStr->StreamSize,
-				MFC_CORE_RAW_READL(MFC_REG_E_RC_BIT_RATE));
-
 			src_mb = mfc_get_del_buf(ctx,&ctx->src_buf_nal_queue, MFC_BUF_NO_TOUCH_USED);
 
 			if (!src_mb)
@@ -2568,13 +2516,13 @@ int mfc_core_nal_q_enqueue_in_buf(struct mfc_core *core, struct mfc_core_ctx *co
 		return ret;
 	}
 
-	if (dev->debugfs.nal_q_dump == 1) {
+	if (nal_q_dump == 1) {
 		mfc_err("[NAL-Q][DUMP][%s INPUT][c: %d] diff: %d, count: %d, exe: %d\n",
 				ctx->type == MFCINST_ENCODER ? "ENC" : "DEC", core->curr_core_ctx,
 				input_diff, input_count, input_exe_count);
 		print_hex_dump(KERN_ERR, "", DUMP_PREFIX_OFFSET, 32, 4,
 				(int *)pStr, dev->pdata->nal_q_dump_size, false);
-		mfc_err("...\n");
+		printk("...\n");
 	}
 	input_count++;
 
@@ -2611,7 +2559,6 @@ EncoderOutputStr *mfc_core_nal_q_dequeue_out_buf(struct mfc_core *core,
 	int output_diff = 0;
 	unsigned int index = 0, offset = 0;
 	EncoderOutputStr *pStr = NULL;
-	unsigned int err, warn;
 
 	mfc_core_debug_enter();
 
@@ -2657,28 +2604,21 @@ EncoderOutputStr *mfc_core_nal_q_dequeue_out_buf(struct mfc_core *core,
 
 	core_ctx = core->core_ctx[nal_q_out_handle->nal_q_ctx];
 	ctx = core_ctx->ctx;
-	if (dev->debugfs.nal_q_dump == 1) {
+	if (nal_q_dump == 1) {
 		mfc_err("[NALQ][DUMP][%s OUTPUT][c: %d] diff: %d, count: %d, exe: %d\n",
 				ctx->type == MFCINST_ENCODER ? "ENC" : "DEC",
 				nal_q_out_handle->nal_q_ctx,
 				output_diff, output_count, output_exe_count);
 		print_hex_dump(KERN_ERR, "", DUMP_PREFIX_OFFSET, 32, 4,
 				(int *)pStr, dev->pdata->nal_q_dump_size, false);
-		mfc_err("...\n");
+		printk("...\n");
 	}
 	nal_q_out_handle->out_exe_count++;
 
 	if (pStr->ErrorCode) {
 		*reason = MFC_REG_R2H_CMD_ERR_RET;
-		err = mfc_get_err(pStr->ErrorCode);
-		warn = mfc_get_warn(pStr->ErrorCode);
-
-		if (((err >= MFC_REG_ERR_FRAME_CONCEAL) && (err <= MFC_REG_ERR_WARNINGS_END)) ||
-			((warn >= MFC_REG_ERR_FRAME_CONCEAL) && (warn <= MFC_REG_ERR_WARNINGS_END)))
-			mfc_core_info("[NALQ] Interrupt Warn: display: %d, decoded: %d\n",
-					warn, err);
-		else
-			mfc_err("[NALQ] Interrupt Error: display: %d, decoded: %d\n", warn, err);
+		mfc_err("[NALQ] Interrupt Error: display: %d, decoded: %d\n",
+				mfc_get_warn(pStr->ErrorCode), mfc_get_err(pStr->ErrorCode));
 	}
 
 	input_diff = mfc_core_get_nal_q_input_count() - mfc_core_get_nal_q_input_exe_count();

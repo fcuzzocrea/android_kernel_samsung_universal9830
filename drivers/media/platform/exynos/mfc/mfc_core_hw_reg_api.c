@@ -56,14 +56,13 @@ void mfc_core_set_risc_base_addr(struct mfc_core *core,
 void mfc_core_cmd_host2risc(struct mfc_core *core, int cmd)
 {
 	struct mfc_core_ctx *core_ctx = core->core_ctx[core->curr_core_ctx];
-	struct mfc_ctx *ctx = core_ctx->ctx;
 	int ret = 0;
 
-	mfc_core_debug(1, "[c:%d] Issue the command: %d%s\n", core->curr_core_ctx,
+	mfc_core_debug(1, "Issue the command: %d%s\n",
 			cmd, core->cache_flush_flag ? " with cache flush" : "");
-	MFC_TRACE_CORE_CTX(">> CMD : %d, (dev:0x%lx, bits:%lx, owned:%d, wl:%d, trans:%d, opmode: %d)\n",
+	MFC_TRACE_CORE_CTX(">> CMD : %d, (dev:0x%lx, bits:%lx, owned:%d, wl:%d, trans:%d)\n",
 			cmd, core->hwlock.dev, core->hwlock.bits, core->hwlock.owned_by_irq,
-			core->hwlock.wl_count, core->hwlock.transfer_owner, ctx->op_mode);
+			core->hwlock.wl_count, core->hwlock.transfer_owner);
 	MFC_TRACE_LOG_CORE("C%d", cmd);
 
 	if (core->cache_flush_flag) {
@@ -90,7 +89,7 @@ void mfc_core_cmd_host2risc(struct mfc_core *core, int cmd)
 		}
 	}
 
-	if (core->dev->debugfs.dbg_enable) {
+	if (dbg_enable) {
 		/* For FW debugging */
 		mfc_core_dbg_set_addr(core);
 		mfc_core_dbg_enable(core);
@@ -128,7 +127,6 @@ int mfc_core_check_risc2host(struct mfc_core *core)
 	return 0;
 }
 
-#if IS_ENABLED(CONFIG_MFC_USES_OTF)
 void mfc_core_set_gdc_votf(struct mfc_core *core, struct mfc_ctx *ctx)
 {
 	unsigned int mfc_votf_base = (core->core_pdata->mfc_votf_base >> 16) & 0xFFFF;
@@ -193,5 +191,3 @@ void mfc_core_clear_votf(struct mfc_core *core)
 	/* vOTF disable, Do not clear 0x0010 */
 	VOTF_WRITEL(0x0, 0x000C);
 }
-
-#endif

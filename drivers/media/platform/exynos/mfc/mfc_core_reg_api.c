@@ -18,9 +18,9 @@ void mfc_core_enc_save_regression_result(struct mfc_core *core)
 {
 	struct mfc_dev *dev = core->dev;
 
-	if (dev->debugfs.regression_option & MFC_TEST_ENC_QP)
+	if (regression_option & MFC_TEST_ENC_QP)
 		dev->regression_val[dev->regression_cnt++] = MFC_CORE_READL(0xE004) & 0xFF;
-	if (dev->debugfs.regression_option & MFC_TEST_DEFAULT) {
+	if (regression_option & MFC_TEST_DEFAULT) {
 		dev->regression_val[dev->regression_cnt++] = mfc_core_get_enc_slice_type();
 		dev->regression_val[dev->regression_cnt++] = MFC_CORE_READL(0x609C);
 		dev->regression_val[dev->regression_cnt++] = MFC_CORE_READL(0x2A54);
@@ -34,9 +34,9 @@ void mfc_core_dec_save_regression_result(struct mfc_core *core)
 {
 	struct mfc_dev *dev = core->dev;
 
-	if (dev->debugfs.regression_option & MFC_TEST_DEC_PER_FRAME)
+	if (regression_option & MFC_TEST_DEC_PER_FRAME)
 		dev->regression_val[dev->regression_cnt++] = mfc_core_get_dec_temporal_id();
-	if (dev->debugfs.regression_option & MFC_TEST_DEFAULT) {
+	if (regression_option & MFC_TEST_DEFAULT) {
 		dev->regression_val[dev->regression_cnt++] = mfc_core_get_img_width();
 		dev->regression_val[dev->regression_cnt++] = mfc_core_get_img_height();
 		dev->regression_val[dev->regression_cnt++] = mfc_core_get_chroma_format();
@@ -71,7 +71,6 @@ void mfc_core_dbg_set_addr(struct mfc_core *core)
 	MFC_CORE_WRITEL(buf_size->dbg_info_buf, MFC_REG_DBG_BUFFER_SIZE);
 }
 
-#if IS_ENABLED(CONFIG_MFC_USES_OTF)
 void mfc_core_otf_set_frame_addr(struct mfc_core *core, struct mfc_ctx *ctx,
 		int num_planes)
 {
@@ -98,7 +97,7 @@ void mfc_core_otf_set_stream_size(struct mfc_core *core, struct mfc_ctx *ctx,
 	mfc_debug(2, "[OTF] set stream buffer full size, %u\n", size);
 	MFC_CORE_WRITEL(size, MFC_REG_E_STREAM_BUFFER_SIZE);
 
-	if (core->dev->debugfs.otf_dump && !ctx->is_drm) {
+	if (otf_dump && !ctx->is_drm) {
 		buf = &debug->stream_buf[debug->frame_cnt];
 		mfc_debug(2, "[OTF] set stream addr for debugging\n");
 		mfc_debug(2, "[OTF][STREAM] buf[%d] daddr: 0x%08llx\n",
@@ -120,7 +119,6 @@ void mfc_core_otf_set_votf_index(struct mfc_core *core, struct mfc_ctx *ctx,
 	mfc_debug(2, "[OTF] set vOTF index, %d\n", job_id);
 	MFC_CORE_WRITEL(job_id, MFC_REG_E_SOURCE_VOTF_BUF_INDEX);
 }
-#endif
 
 unsigned int mfc_get_frame_error_type(struct mfc_ctx *ctx, unsigned int err)
 {
@@ -168,13 +166,6 @@ int mfc_core_set_dec_codec_buffers(struct mfc_core_ctx *core_ctx)
 	mfc_debug(2, "[MEMINFO] codec buf 0x%llx size: %d\n", buf_addr, buf_size);
 	mfc_debug(2, "Total DPB COUNT: %d, display delay: %d\n",
 			dec->total_dpb_count, dec->display_delay);
-
-	if (core_ctx->codec_buffer_allocated && buf_size &&
-			(buf_size > core_ctx->codec_buf.dma_buf->size)) {
-		mfc_ctx_info("[MEMINFO] Not enough codec buf size %d alloc size %zu\n",
-				buf_size, core_ctx->codec_buf.dma_buf->size);
-		return -ENOMEM;
-	}
 
 	/* set decoder DPB size, stride */
 	MFC_CORE_WRITEL(dec->total_dpb_count, MFC_REG_D_NUM_DPB);
@@ -273,13 +264,6 @@ int mfc_core_set_dec_codec_buffers(struct mfc_core_ctx *core_ctx)
 	frame_size_mv = ctx->mv_size;
 	MFC_CORE_WRITEL(dec->mv_count, MFC_REG_D_NUM_MV);
 	if (IS_H264_DEC(ctx) || IS_H264_MVC_DEC(ctx) || IS_HEVC_DEC(ctx) || IS_BPG_DEC(ctx) || IS_AV1_DEC(ctx)) {
-		if (ctx->mv_buffer_allocated && buf_size &&
-				(buf_size > ctx->mv_buf.dma_buf->size)) {
-			mfc_ctx_info("[MEMINFO] Not enough MV buf size %d alloc size %zu\n",
-					buf_size, ctx->mv_buf.dma_buf->size);
-			return -ENOMEM;
-		}
-
 		for (i = 0; i < dec->mv_count; i++) {
 			align_gap = buf_addr;
 			buf_addr = ALIGN(buf_addr, 16);
@@ -379,7 +363,7 @@ int mfc_core_set_dec_stream_buffer(struct mfc_core *core, struct mfc_ctx *ctx,
 		if (dbuf_size < cpb_buf_size) {
 			mfc_ctx_info("Decrease buffer size: %u -> %u\n",
 					cpb_buf_size, dbuf_size);
-			cpb_buf_size = (unsigned int)dbuf_size;
+			cpb_buf_size = dbuf_size;
 		}
 		mfc_debug(2, "[BUFINFO] ctx[%d] set src index: %d(%d), addr: 0x%08llx\n",
 				ctx->num, index, mfc_buf->src_index, addr);
@@ -553,7 +537,7 @@ int mfc_core_set_dynamic_dpb(struct mfc_core *core, struct mfc_ctx *ctx,
 
 	/* for debugging about black bar detection */
 	if ((MFC_FEATURE_SUPPORT(dev, dev->pdata->black_bar) && dec->detect_black_bar) ||
-			(dev->debugfs.feature_option & MFC_OPTION_BLACK_BAR_ENABLE)) {
+			(feature_option & MFC_OPTION_BLACK_BAR_ENABLE)) {
 		for (i = 0; i < raw->num_planes; i++) {
 			dec->frame_vaddr[i][dec->frame_cnt] = vb2_plane_vaddr(&dst_mb->vb.vb2_buf, i);
 			dec->frame_daddr[i][dec->frame_cnt] = dst_mb->addr[0][i];
@@ -635,7 +619,7 @@ static void __mfc_enc_check_sbwc_option(struct mfc_ctx *ctx, unsigned int *sbwc)
 	 * - feature_option disable and SBWC format: apply only in input source (1)
 	 * - feature_option disable and not SBWC format: no SBWC
 	 */
-	if (!(ctx->dev->debugfs.feature_option & MFC_OPTION_RECON_SBWC_DISABLE)) {
+	if (!(feature_option & MFC_OPTION_RECON_SBWC_DISABLE)) {
 		if (*sbwc == 1) {
 			enc->sbwc_option = 0;
 			mfc_debug(2, "[SBWC] apply in input source and DPB\n");
@@ -924,7 +908,7 @@ void mfc_core_get_hdr_plus_info(struct mfc_core *core, struct mfc_ctx *ctx,
 				MFC_CORE_READL(MFC_REG_D_ST_2094_40_SEI_29) >> 1 & 0x3F;
 	}
 
-	if (dev->debugfs.debug_level >= 5)
+	if (debug_level >= 5)
 		mfc_core_print_hdr_plus_info(core, ctx, sei_meta);
 }
 
@@ -1025,7 +1009,7 @@ void mfc_core_set_hdr_plus_info(struct mfc_core *core, struct mfc_ctx *ctx,
 		}
 	}
 
-	if (dev->debugfs.debug_level >= 5)
+	if (debug_level >= 5)
 		mfc_core_print_hdr_plus_info(core, ctx, sei_meta);
 }
 
@@ -1264,7 +1248,7 @@ void mfc_core_get_av1_film_grain_info(struct mfc_core *core, struct mfc_ctx *ctx
 	__get_av1_coeffs_info(core, ctx, &sei_meta->ar_coeffs_cr_plus_128[0],
 		AV1_FG_CHR_AR_COEF_SIZE, MFC_REG_D_FILM_GRAIN_35);
 
-	if (core->dev->debugfs.debug_level >= 5)
+	if (debug_level >= 5)
 		mfc_core_print_av1_film_grain_info(core, ctx, sei_meta);
 
 }

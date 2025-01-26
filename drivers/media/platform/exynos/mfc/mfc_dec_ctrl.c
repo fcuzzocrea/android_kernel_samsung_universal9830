@@ -16,7 +16,7 @@
 
 #define NUM_CTRL_CFGS ARRAY_SIZE(mfc_ctrl_list)
 
-static struct mfc_ctrl_cfg const mfc_ctrl_list[] = {
+struct mfc_ctrl_cfg mfc_ctrl_list[] = {
 	{
 		.type = MFC_CTRL_TYPE_SET_SRC,
 		.id = V4L2_CID_MPEG_MFC51_VIDEO_FRAME_TAG,
@@ -948,7 +948,7 @@ static int mfc_dec_recover_buf_ctrls_nal_q(struct mfc_ctx *ctx, struct list_head
 	return 0;
 }
 
-const struct mfc_ctrls_ops decoder_ctrls_ops = {
+struct mfc_ctrls_ops decoder_ctrls_ops = {
 	.init_ctx_ctrls			= mfc_dec_init_ctx_ctrls,
 	.cleanup_ctx_ctrls		= mfc_dec_cleanup_ctx_ctrls,
 	.init_buf_ctrls			= mfc_dec_init_buf_ctrls,

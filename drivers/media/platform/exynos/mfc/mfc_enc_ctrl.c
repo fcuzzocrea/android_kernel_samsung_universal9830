@@ -1229,37 +1229,22 @@ static void __mfc_core_enc_set_buf_ctrls_exception(struct mfc_core *core,
 
 	/* set drop control */
 	if (buf_ctrl->id == V4L2_CID_MPEG_VIDEO_DROP_CONTROL) {
-		if (!ctx->src_ts.ts_last_interval) {
+		if (!ctx->ts_last_interval) {
 			p->rc_frame_delta = p->rc_framerate_res / p->rc_framerate;
 			mfc_debug(3, "[DROPCTRL] default delta: %d\n", p->rc_frame_delta);
 		} else {
-			/*
-			 * FRAME_DELTA specifies the amount of
-			 * increment of frame modulo base time.
-			 * - delta unit = framerate resolution / fps
-			 * - fps = 1000000(usec per sec) / timestamp interval
-			 * For the sophistication of calculation, we will divide later.
-			 * Excluding H.263, resolution is fixed to 10000,
-			 * so thie is also divided into pre-calculated 100.
-			 * (Preventing both overflow and calculation duplication)
-			 */
 			if (IS_H263_ENC(ctx))
-				p->rc_frame_delta = ctx->src_ts.ts_last_interval *
-					p->rc_framerate_res / 1000000;
+				p->rc_frame_delta = (ctx->ts_last_interval / 100) / p->rc_framerate_res;
 			else
-				p->rc_frame_delta = ctx->src_ts.ts_last_interval / 100;
+				p->rc_frame_delta = ctx->ts_last_interval / p->rc_framerate_res;
 		}
 		value = MFC_CORE_READL(MFC_REG_E_RC_FRAME_RATE);
 		value &= ~(0xFFFF);
 		value |= (p->rc_frame_delta & 0xFFFF);
 		MFC_CORE_WRITEL(value, MFC_REG_E_RC_FRAME_RATE);
-		if (ctx->src_ts.ts_last_interval)
-			mfc_debug(3, "[DROPCTRL] fps %d -> %ld, delta: %d, reg: %#x\n",
-				p->rc_framerate, USEC_PER_SEC / ctx->src_ts.ts_last_interval,
+		mfc_debug(3, "[DROPCTRL] fps %d -> %ld, delta: %d, reg: %#x\n",
+				p->rc_framerate, USEC_PER_SEC / ctx->ts_last_interval,
 				p->rc_frame_delta, value);
-		else
-			mfc_debug(3, "[DROPCTRL] fps %d -> 0, delta: %d, reg: %#x\n",
-				p->rc_framerate, p->rc_frame_delta, value);
 	}
 
 	/* store last config qp value in F/W */
@@ -1640,39 +1625,23 @@ static int mfc_enc_set_buf_ctrls_val_nal_q(struct mfc_ctx *ctx,
 			param_change = 1;
 			break;
 		case V4L2_CID_MPEG_VIDEO_DROP_CONTROL:
-			if (!ctx->src_ts.ts_last_interval) {
+			if (!ctx->ts_last_interval) {
 				p->rc_frame_delta = p->rc_framerate_res / p->rc_framerate;
 				mfc_debug(3, "[NALQ][DROPCTRL] default delta: %d\n", p->rc_frame_delta);
 			} else {
-				/*
-				 * FRAME_DELTA specifies the amount of
-				 * increment of frame modulo base time.
-				 * So, we will take to framerate resolution / fps concept.
-				 * - delta unit = framerate resolution / fps
-				 * - fps = 1000000(usec per sec) / timestamp interval
-				 * For the sophistication of calculation, we will divide later.
-				 * Excluding H.263, resolution is fixed to 10000,
-				 * so thie is also divided into pre-calculated 100.
-				 * (Preventing both overflow and calculation duplication)
-				 */
 				if (IS_H263_ENC(ctx))
-					p->rc_frame_delta = ctx->src_ts.ts_last_interval *
-						p->rc_framerate_res / 1000000;
+					p->rc_frame_delta = (ctx->ts_last_interval / 100) / p->rc_framerate_res;
 				else
-					p->rc_frame_delta = ctx->src_ts.ts_last_interval / 100;
+					p->rc_frame_delta = ctx->ts_last_interval / p->rc_framerate_res;
 			}
 			pInStr->RcFrameRate &= ~(0xFFFF << 16);
 			pInStr->RcFrameRate |= (p->rc_framerate_res & 0xFFFF) << 16;
 			pInStr->RcFrameRate &= ~(buf_ctrl->mask << buf_ctrl->shft);
 			pInStr->RcFrameRate |=
 				(p->rc_frame_delta & buf_ctrl->mask) << buf_ctrl->shft;
-			if (ctx->src_ts.ts_last_interval)
-				mfc_debug(3, "[NALQ][DROPCTRL] fps %d -> %ld, delta: %d, reg: %#x\n",
-					p->rc_framerate, USEC_PER_SEC / ctx->src_ts.ts_last_interval,
+			mfc_debug(3, "[NALQ][DROPCTRL] fps %d -> %ld, delta: %d, reg: %#x\n",
+					p->rc_framerate, USEC_PER_SEC / ctx->ts_last_interval,
 					p->rc_frame_delta, pInStr->RcFrameRate);
-			else
-				mfc_debug(3, "[NALQ][DROPCTRL] fps %d -> 0, delta: %d, reg: %#x\n",
-					p->rc_framerate, p->rc_frame_delta, pInStr->RcFrameRate);
 			break;
 		/* If new dynamic controls are added, insert here */
 		default:
@@ -1754,7 +1723,7 @@ static int mfc_enc_recover_buf_ctrls_nal_q(struct mfc_ctx *ctx, struct list_head
 	return 0;
 }
 
-const struct mfc_ctrls_ops encoder_ctrls_ops = {
+struct mfc_ctrls_ops encoder_ctrls_ops = {
 	.init_ctx_ctrls			= mfc_enc_init_ctx_ctrls,
 	.cleanup_ctx_ctrls		= mfc_enc_cleanup_ctx_ctrls,
 	.init_buf_ctrls			= mfc_enc_init_buf_ctrls,

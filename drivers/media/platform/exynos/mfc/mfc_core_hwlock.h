@@ -66,6 +66,7 @@ static inline void mfc_core_destroy_listable_wq_ctx(struct mfc_core_ctx *core_ct
 
 void mfc_core_init_hwlock(struct mfc_core *core);
 
+int mfc_core_get_hwlock_dev_migrate(struct mfc_core *core, struct mfc_core_ctx *core_ctx);
 int mfc_core_get_hwlock_dev(struct mfc_core *core);
 int mfc_core_get_hwlock_ctx(struct mfc_core_ctx *core_ctx);
 

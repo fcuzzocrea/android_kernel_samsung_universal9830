@@ -13,8 +13,6 @@
 #include <linux/sec_debug.h>
 #endif
 
-#include <soc/samsung/exynos-debug.h>
-
 #include "mfc_rm.h"
 
 #include "mfc_core_meerkat.h"
@@ -27,13 +25,7 @@
 #include "mfc_sync.h"
 #include "mfc_queue.h"
 
-#if IS_ENABLED(CONFIG_VIDEO_EXYNOS_TSMUX)
-#include "media/exynos_tsmux.h"
-#endif
-
-
-#define MFC_SFR_AREA_COUNT	23
-#define MFC1_SFR_AREA_COUNT	4
+#define MFC_SFR_AREA_COUNT	22
 static void __mfc_dump_regs(struct mfc_core *core)
 {
 	int i;
@@ -58,16 +50,9 @@ static void __mfc_dump_regs(struct mfc_core *core)
 		{ 0x7300, 0xFC },
 		{ 0x8000, 0x20C },
 		{ 0x9000, 0x10C },
-		{ 0x9A00, 0x200 },
 		{ 0xA000, 0x500 },
 		{ 0xB000, 0x444 },
 		{ 0xC000, 0x84 },
-	};
-	int addr1[MFC1_SFR_AREA_COUNT][2] = {
-		{ 0x3A00, 0x5CC },
-		{ 0x6200, 0x188 },
-		{ 0x9A00, 0x200 },
-		{ 0xA500, 0x6C },
 	};
 
 	dev_err(core->device, "-----------dumping MFC registers\n");
@@ -81,35 +66,25 @@ static void __mfc_dump_regs(struct mfc_core *core)
 	mfc_core_enable_all_clocks(core);
 
 	for (i = 0; i < MFC_SFR_AREA_COUNT; i++) {
-		dev_err(core->device, "[%04X .. %04X]\n", addr[i][0], addr[i][0] + addr[i][1]);
+		printk("[%04X .. %04X]\n", addr[i][0], addr[i][0] + addr[i][1]);
 		print_hex_dump(KERN_ERR, "", DUMP_PREFIX_OFFSET, 32, 4, core->regs_base + addr[i][0],
 				addr[i][1], false);
-		dev_err(core->device, "...\n");
+		printk("...\n");
 	}
 
-	if (core->id == MFC_OP_CORE_FIXED_1) {
-		dev_err(core->device, "------dumping additional register for MFC1\n");
-		for (i = 0; i < MFC1_SFR_AREA_COUNT; i++) {
-			dev_err(core->device, "[%04X .. %04X]\n", addr1[i][0], addr1[i][0] + addr1[i][1]);
-			print_hex_dump(KERN_ERR, "", DUMP_PREFIX_OFFSET, 32, 4, core->regs_base + addr1[i][0],
-					addr1[i][1], false);
-			dev_err(core->device, "...\n");
-		}
-	}
-
-	if (core->dev->debugfs.dbg_enable) {
+	if (dbg_enable) {
 		buf_size = core->dev->variant->buf_size->ctx_buf;
-		dev_err(core->device, "[DBG INFO dump]\n");
+		printk("[DBG INFO dump]\n");
 		print_hex_dump(KERN_ERR, "", DUMP_PREFIX_OFFSET, 32, 4, core->dbg_info_buf.vaddr,
 			buf_size->dbg_info_buf, false);
-		dev_err(core->device, "...\n");
+		printk("...\n");
 	}
 
 	if (core->has_mfc_votf) {
-		dev_err(core->device, "[MFC vOTF dump]\n");
+		printk("[MFC vOTF dump]\n");
 		print_hex_dump(KERN_ERR, "", DUMP_PREFIX_OFFSET, 32, 4, core->votf_base,
 			0x1000, false);
-		dev_err(core->device, "...\n");
+		printk("...\n");
 	}
 }
 
@@ -237,8 +212,7 @@ static void __mfc_merge_errorinfo_data(struct mfc_core *core, bool px_fault)
 	dev_err(core->device, "%s\n", errorinfo);
 
 #if IS_ENABLED(CONFIG_SEC_DEBUG_EXTRA_INFO)
-	//sec_debug_set_extra_info_mfc_error(errorinfo);  // from S-LSI patch on 05/06
-	secdbg_exin_set_mfc_error(errorinfo);
+	sec_debug_set_extra_info_mfc_error(errorinfo);
 #endif
 }
 
@@ -256,10 +230,7 @@ static int __mfc_get_curr_ctx(struct mfc_core *core)
 			index = nal_q_handle->nal_q_in_handle->in_exe_count % NAL_Q_QUEUE_SIZE;
 			offset = core->dev->pdata->nal_q_entry_size * index;
 			pStr = (DecoderInputStr *)(nal_q_handle->nal_q_in_handle->nal_q_in_addr + offset);
-			for (i = 0; i < MFC_NUM_CONTEXTS; i++)
-				if (core->core_ctx[i] &&
-						(core->core_ctx[i]->inst_no == pStr->InstanceId))
-					curr_ctx = core->core_ctx[i]->num;
+			curr_ctx = pStr->InstanceId;
 		}
 	}
 
@@ -364,35 +335,25 @@ void mfc_dump_state(struct mfc_dev *dev)
 {
 	int i;
 
-	mfc_dev_err("-----------dumping MFC device info-----------\n");
-	mfc_dev_err("options debug_level:%d, debug_mode:%d (%d), perf_boost:%d, wait_fw_status %d, multi_core_bits: %#llx\n",
-			dev->debugfs.debug_level, dev->pdata->debug_mode, dev->debugfs.debug_mode_en,
-			dev->debugfs.perf_boost_mode, dev->pdata->wait_fw_status.support,
-			dev->multi_core_inst_bits);
+	dev_err(dev->device, "-----------dumping MFC device info-----------\n");
+	dev_err(dev->device, "options debug_level:%d, debug_mode:%d (%d), perf_boost:%d, wait_fw_status %d\n",
+			debug_level, dev->pdata->debug_mode, debug_mode_en,
+			perf_boost_mode, dev->pdata->wait_fw_status.support);
 
 	for (i = 0; i < MFC_NUM_CONTEXTS; i++) {
 		if (dev->ctx[i]) {
-#if IS_ENABLED(CONFIG_EXYNOS_THERMAL_V2)
-			mfc_dev_err("- ctx[%d] %s %s, %s, %s, size: %dx%d@%ldfps(tmu: %dfps, op: %ldfps), crop: %d %d %d %d\n",
-#else
-			mfc_dev_err("- ctx[%d] %s %s, %s, %s, size: %dx%d@%ldfps(op: %ldfps), crop: %d %d %d %d\n",
-#endif
+			dev_err(dev->device, "- ctx[%d] %s %s, %s, %s, size: %dx%d, crop: %d %d %d %d\n",
 				dev->ctx[i]->num,
 				dev->ctx[i]->type == MFCINST_DECODER ? "DEC" : "ENC",
 				dev->ctx[i]->is_drm ? "Secure" : "Normal",
 				dev->ctx[i]->src_fmt->name,
 				dev->ctx[i]->dst_fmt->name,
 				dev->ctx[i]->img_width, dev->ctx[i]->img_height,
-				dev->ctx[i]->last_framerate / 1000,
-#if IS_ENABLED(CONFIG_EXYNOS_THERMAL_V2)
-				dev->tmu_fps,
-#endif
-				dev->ctx[i]->operating_framerate,
 				dev->ctx[i]->crop_width, dev->ctx[i]->crop_height,
 				dev->ctx[i]->crop_left, dev->ctx[i]->crop_top);
-			mfc_dev_err("	main core: %d, op_mode: %d(stream: %d), queue_cnt(src:%d, dst:%d, ref:%d, qsrc:%d, qdst:%d)\n",
-				dev->ctx[i]->op_core_num[MFC_CORE_MAIN],
-				dev->ctx[i]->op_mode, dev->ctx[i]->stream_op_mode,
+			dev_err(dev->device, "	master core-%d, op_mode: %d, queue_cnt(src:%d, dst:%d, ref:%d, qsrc:%d, qdst:%d)\n",
+				dev->ctx[i]->op_core_num[MFC_CORE_MASTER],
+				dev->ctx[i]->op_mode,
 				mfc_get_queue_count(&dev->ctx[i]->buf_queue_lock, &dev->ctx[i]->src_buf_ready_queue),
 				mfc_get_queue_count(&dev->ctx[i]->buf_queue_lock, &dev->ctx[i]->dst_buf_queue),
 				mfc_get_queue_count(&dev->ctx[i]->buf_queue_lock, &dev->ctx[i]->ref_buf_queue),
@@ -423,8 +384,8 @@ void __mfc_core_dump_state(struct mfc_core *core, int curr_ctx)
 	dev_err(core->device, "has 2sysmmu:%d, has hwfc:%d, has_mfc_votf:%d, has_gdc_votf:%d, has_dpu_votf:%d\n",
 			core->has_2sysmmu, core->has_hwfc, core->has_mfc_votf,
 			core->has_gdc_votf, core->has_dpu_votf);
-	dev_err(core->device, "shutdown:%d, sleep:%d, QoS level:%d\n",
-			core->shutdown, core->sleep, atomic_read(&core->qos_req_cur) - 1);
+	dev_err(core->device, "shutdown:%d, sleep:%d\n",
+			core->shutdown, core->sleep);
 	dev_err(core->device, "fw addr %#llx size %08zu drm_fw addr %#llx\n",
 			core->fw_buf.daddr, core->fw_buf.size,
 			core->drm_fw_buf.daddr);
@@ -462,15 +423,6 @@ static void __mfc_dump_trace(struct mfc_core *core)
 		cnt = ((trace_cnt + MFC_TRACE_COUNT_MAX) - i) % MFC_TRACE_COUNT_MAX;
 		dev_err(core->device, "MFC trace[%d]: time=%llu, str=%s", cnt,
 				dev->mfc_trace[cnt].time, dev->mfc_trace[cnt].str);
-	}
-
-	dev_err(core->device, "-----------dumping MFC RM trace info-----------\n");
-
-	trace_cnt = atomic_read(&dev->trace_ref_rm);
-	for (i = MFC_TRACE_COUNT_PRINT - 1; i >= 0; i--) {
-		cnt = ((trace_cnt + MFC_TRACE_COUNT_MAX) - i) % MFC_TRACE_COUNT_MAX;
-		dev_err(core->device, "MFC RM trace[%d]: time=%llu, str=%s", cnt,
-				dev->mfc_trace_rm[cnt].time, dev->mfc_trace_rm[cnt].str);
 	}
 }
 
@@ -653,7 +605,7 @@ static void __mfc_dump_dpb(struct mfc_core *core, int curr_ctx)
 	struct mfc_ctx *ctx = core_ctx->ctx;
 	struct mfc_dec *dec = ctx->dec_priv;
 	struct mfc_buf *mfc_buf = NULL;
-	int i, found, in_nal_q;
+	int i;
 
 	if (ctx->type != MFCINST_DECODER || dec == NULL)
 		return;
@@ -674,33 +626,12 @@ static void __mfc_dump_dpb(struct mfc_core *core, int curr_ctx)
 	dev_err(core->device, "dynamic_used: %#lx, queued: %#lx, table_used: %#lx, dynamic_set: %#lx(dec: %#lx)\n",
 			dec->dynamic_used, dec->queued_dpb, dec->dpb_table_used,
 			core_ctx->dynamic_set, dec->dynamic_set);
-	for (i = 0; i < MFC_MAX_DPBS; i++) {
-		found = 0;
-		in_nal_q = 0;
-		list_for_each_entry(mfc_buf, &ctx->dst_buf_queue.head, list) {
-			if (i == mfc_buf->dpb_index) {
-				found = 1;
-				break;
-			}
-		}
-		if (!found) {
-			list_for_each_entry(mfc_buf, &ctx->dst_buf_nal_queue.head, list) {
-				if (i == mfc_buf->dpb_index) {
-					found = 1;
-					in_nal_q = 1;
-					break;
-				}
-			}
-		}
-		dev_err(core->device, "[%d] dpb [%d] %#010llx %#010llx %#010llx fd %d(%d) (%s, %s, %s%s)\n",
-				i, found ? mfc_buf->vb.vb2_buf.index : -1,
-				dec->dpb[i].addr[0], dec->dpb[i].addr[1],
-				dec->dpb[i].paddr, dec->dpb[i].fd[0], dec->dpb[i].new_fd,
+	for (i = 0; i < MFC_MAX_DPBS; i++)
+		dev_err(core->device, "[%d] dpb %#llx %#llx (%s, %s, %s)\n",
+				i, dec->dpb[i].addr[0], dec->dpb[i].addr[1],
 				dec->dpb[i].mapcnt ? "map" : "unmap",
 				dec->dpb[i].ref ? "ref" : "free",
-				dec->dpb[i].queued ? "Q" : "DQ",
-				in_nal_q ? " in NALQ" : "");
-	}
+				dec->dpb[i].queued ? "Q" : "DQ");
 }
 
 static void __mfc_dump_info_without_regs(struct mfc_core *core)
@@ -731,61 +662,36 @@ static void __mfc_dump_info(struct mfc_core *core)
 	__mfc_save_logging_sfr(core);
 	__mfc_dump_buffer_info(core);
 	__mfc_dump_regs(core);
-
-	/* If there was fault addr, sysmmu info is already printed out */
-	if (!core->logging_data->fault_addr)
-		exynos_sysmmu_show_status(core->device);
 }
 
 static void __mfc_dump_info_and_stop_hw(struct mfc_core *core)
 {
 	struct mfc_dev *dev = core->dev;
-	struct mfc_core *main_core;
+	struct mfc_core *master_core;
 	struct mfc_ctx *ctx;
 	int curr_ctx = __mfc_get_curr_ctx(core);
-	int two_dump = 0;
 
 	MFC_TRACE_CORE("** %s will stop!!!\n", core->name);
 
 	/* dump issued core first */
 	__mfc_dump_info(core);
 
+	/* Broadcast meerkat to multi mode core */
 	if (curr_ctx < 0)
 		goto panic;
 
-	/* Broadcast meerkat to multi mode core */
 	ctx = dev->ctx[curr_ctx];
 	if (!IS_SINGLE_MODE(ctx)) {
 		dev_err(dev->device, "[2CORE] there is multi core mode (op mode: %d)\n",
 				ctx->op_mode);
-		two_dump = 1;
-		main_core = mfc_get_main_core(dev, ctx);
-		if (!main_core) {
-			dev_err(dev->device, "[2CORE] There is no main core\n");
-			goto panic;
-		}
-		if (core == main_core) {
-			/* issued core maincore, dump sub core also */
-			core = mfc_get_sub_core(dev, ctx);
-			if (!core) {
-				dev_err(dev->device, "[2CORE] There is no sub core\n");
-				goto panic;
-			}
-		} else {
-			/* issued core subcore, dump main core also */
-			core = main_core;
-		}
-		__mfc_dump_info(core);
-	}
-
-	/* Broadcast meerkat to other core if migration working */
-	if (!two_dump && dev->move_ctx_cnt) {
-		dev_err(dev->device, "[2CORE] migration working (move_ctx_cnt: %d)\n",
-				dev->move_ctx_cnt);
-		if (core->id == MFC_DEC_DEFAULT_CORE)
-			__mfc_dump_info(dev->core[MFC_SURPLUS_CORE]);
+		master_core = mfc_get_master_core(dev, ctx);
+		if (core == master_core)
+			/* issued core master, dump slave core also */
+			core = mfc_get_slave_core(dev, ctx);
 		else
-			__mfc_dump_info(dev->core[MFC_DEC_DEFAULT_CORE]);
+			/* issued core slave, dump master core also */
+			core = master_core;
+		__mfc_dump_info(core);
 	}
 
 	if (dev->otf_inst_bits) {
@@ -796,7 +702,7 @@ static void __mfc_dump_info_and_stop_hw(struct mfc_core *core)
 	}
 
 panic:
-	s3c2410wdt_set_emergency_reset(0, 0);
+	dbg_snapshot_expire_watchdog();
 	BUG();
 }
 
@@ -804,7 +710,7 @@ static void __mfc_dump_info_and_stop_hw_debug(struct mfc_core *core)
 {
 	struct mfc_dev *dev = core->dev;
 
-	if (!dev->pdata->debug_mode && !dev->debugfs.debug_mode_en)
+	if (!dev->pdata->debug_mode && !debug_mode_en)
 		return;
 
 	__mfc_dump_info_and_stop_hw(core);
@@ -828,7 +734,7 @@ void mfc_core_meerkat_worker(struct work_struct *work)
 		return;
 	}
 
-	if (core->dev->debugfs.feature_option & MFC_OPTION_MEERKAT_DISABLE) {
+	if (feature_option & MFC_OPTION_MEERKAT_DISABLE) {
 		mfc_core_info("meerkat disable: no interrupt ignore\n");
 		return;
 	}

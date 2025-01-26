@@ -13,19 +13,9 @@
 #include "mfc_core_intlock.h"
 #include "mfc_core_isr.h"
 
-void mfc_clear_core_intlock(struct mfc_ctx *ctx)
-{
-	mutex_lock(&ctx->intlock.core_mutex);
-
-	ctx->intlock.bits = 0;
-
-	mutex_unlock(&ctx->intlock.core_mutex);
-}
-
 int mfc_get_core_intlock(struct mfc_core_ctx *core_ctx)
 {
 	struct mfc_core *core = core_ctx->core;
-	struct mfc_dev *dev = core->dev;
 	struct mfc_ctx *ctx = core_ctx->ctx;
 
 	if (!(IS_TWO_MODE2(ctx) && core_ctx->state == MFCINST_RUNNING))
@@ -48,7 +38,6 @@ int mfc_get_core_intlock(struct mfc_core_ctx *core_ctx)
 			(ctx->intlock.bits & (1 << core->id))) {
 		mfc_debug(2, "[2CORE] interrupt reverse, MFC-%d isr should be delayed handled\n",
 				core->id);
-		MFC_TRACE_RM("[c:%d] MFC-%d ISR reverse\n", ctx->num, core->id);
 		set_bit(core->id, &ctx->intlock.pending);
 		mutex_unlock(&ctx->intlock.core_mutex);
 		return -1;
@@ -88,7 +77,6 @@ void mfc_release_core_intlock(struct mfc_core_ctx *core_ctx)
 			pending_core = dev->core[i];
 			clear_bit(i, &ctx->intlock.pending);
 			mfc_debug(2, "[2CORE] interrupt pending clear\n");
-			MFC_TRACE_RM("[c:%d] MFC-%d ISR delayed handle\n", ctx->num, core->id);
 		}
 	}
 
