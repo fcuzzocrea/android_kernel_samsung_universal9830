@@ -73,12 +73,12 @@
 #define mfc_dev_debug(fmt, args...)
 #endif
 
-#define mfc_debug_enter() mfc_debug(5, "enter\n")
-#define mfc_debug_leave() mfc_debug(5, "leave\n")
-#define mfc_core_debug_enter() mfc_core_debug(5, "enter\n")
-#define mfc_core_debug_leave() mfc_core_debug(5, "leave\n")
-#define mfc_dev_debug_enter() mfc_dev_debug(5, "enter\n")
-#define mfc_dev_debug_leave() mfc_dev_debug(5, "leave\n")
+#define mfc_debug_enter() mfc_debug(0, "enter\n")
+#define mfc_debug_leave() mfc_debug(0, "leave\n")
+#define mfc_core_debug_enter() mfc_core_debug(0, "enter\n")
+#define mfc_core_debug_leave() mfc_core_debug(0, "leave\n")
+#define mfc_dev_debug_enter() mfc_dev_debug(0, "enter\n")
+#define mfc_dev_debug_leave() mfc_dev_debug(0, "leave\n")
 
 /* ERROR */
 #define mfc_pr_err(fmt, args...)					\
