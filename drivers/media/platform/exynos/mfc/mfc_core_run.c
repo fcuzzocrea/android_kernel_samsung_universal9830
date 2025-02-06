@@ -414,6 +414,11 @@ int mfc_core_run_dec_frame(struct mfc_core *core, struct mfc_ctx *ctx)
 	last_frame = __mfc_check_last_frame(core_ctx, src_mb);
 	ret = mfc_core_cmd_dec_one_frame(core, ctx, last_frame, src_index);
 
+	if (dec->consumed && IS_TWO_MODE2(ctx)) {
+		mfc_debug(2, "[STREAM][2CORE] clear consumed for next core\n");
+		dec->consumed = 0;
+		dec->remained_size = 0;
+	}
 	return ret;
 }
 
@@ -532,9 +537,9 @@ int mfc_core_run_enc_frame(struct mfc_core *core, struct mfc_ctx *ctx)
 		mfc_core_set_enc_stride(core, ctx);
 	}
 
-	if (mfc_check_mb_flag(src_mb, MFC_FLAG_ENC_SRC_FAKE)) {
-		enc->fake_src = 1;
-		mfc_debug(2, "src is fake\n");
+	if (mfc_check_mb_flag(src_mb, MFC_FLAG_ENC_SRC_DUMMY)) {
+		enc->dummy_src = 1;
+		mfc_debug(2, "src is dummy\n");
 	}
 
 	index = src_mb->vb.vb2_buf.index;
@@ -585,6 +590,7 @@ int mfc_core_run_enc_frame(struct mfc_core *core, struct mfc_ctx *ctx)
 	if (!dev->debugfs.reg_test)
 		mfc_core_set_slice_mode(core, ctx);
 	mfc_core_set_enc_config_qp(core, ctx);
+	mfc_core_set_enc_ts_delta(core, ctx);
 
 	mfc_core_cmd_enc_one_frame(core, ctx, last_frame);
 
@@ -593,12 +599,8 @@ int mfc_core_run_enc_frame(struct mfc_core *core, struct mfc_ctx *ctx)
 
 int mfc_core_run_enc_last_frames(struct mfc_core *core, struct mfc_ctx *ctx)
 {
-	struct mfc_enc *enc = ctx->enc_priv;
-	struct mfc_enc_params *p = &enc->params;
 	struct mfc_buf *dst_mb = NULL;
 	struct mfc_raw_info *raw;
-	int hier_qp_type = -EINVAL;
-	u8 num_hier_layer = 0;
 
 	raw = &ctx->raw_buf;
 
@@ -606,17 +608,7 @@ int mfc_core_run_enc_last_frames(struct mfc_core *core, struct mfc_ctx *ctx)
 	if (!dst_mb) {
 		mfc_debug(2, "no dst buffers set to zero\n");
 
-		if (IS_H264_ENC(ctx)) {
-			num_hier_layer = p->codec.h264.num_hier_layer;
-			hier_qp_type = (int)p->codec.h264.hier_qp_type;
-		} else if (IS_HEVC_ENC(ctx)) {
-			num_hier_layer = p->codec.hevc.num_hier_layer;
-			hier_qp_type = (int)p->codec.hevc.hier_qp_type;
-		}
-
-		if (p->num_b_frame ||
-			((num_hier_layer >= 2) &&
-			 (hier_qp_type == V4L2_MPEG_VIDEO_HEVC_HIERARCHICAL_CODING_B))) {
+		if (mfc_core_get_enc_bframe(ctx)) {
 			mfc_ctx_info("B frame encoding should be dst buffer\n");
 			return -EINVAL;
 		}

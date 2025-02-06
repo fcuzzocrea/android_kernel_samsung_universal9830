@@ -11,28 +11,16 @@
  */
 
 #include <linux/property.h>
+#include <linux/ion.h>
+#include <linux/dma-buf.h>
+#include <linux/iommu.h>
+#include <linux/dma-iommu.h>
 
 #include "mfc_mem.h"
 
 struct vb2_mem_ops *mfc_mem_ops(void)
 {
 	return (struct vb2_mem_ops *)&vb2_dma_sg_memops;
-}
-
-void mfc_mem_clean(struct mfc_dev *dev,
-			struct mfc_special_buf *special_buf,
-			off_t offset, size_t size)
-{
-	__dma_map_area(special_buf->vaddr + offset, size, DMA_TO_DEVICE);
-	return;
-}
-
-void mfc_mem_invalidate(struct mfc_dev *dev,
-			struct mfc_special_buf *special_buf,
-			off_t offset, size_t size)
-{
-	__dma_map_area(special_buf->vaddr + offset, size, DMA_FROM_DEVICE);
-	return;
 }
 
 int mfc_mem_get_user_shared_handle(struct mfc_ctx *ctx,
@@ -87,10 +75,33 @@ void mfc_mem_cleanup_user_shared_handle(struct mfc_ctx *ctx,
 	handle->fd = -1;
 }
 
+static unsigned int __mfc_mem_ion_get_heapmask_by_name(struct mfc_dev *dev,
+		const char *heap_name)
+{
+	struct ion_heap_data data[ION_NUM_MAX_HEAPS];
+	int i, cnt = ion_query_heaps_kernel(NULL, 0);
+
+	ion_query_heaps_kernel((struct ion_heap_data *)data, cnt);
+
+	for (i = 0; i < cnt; i++) {
+		if (!strncmp(data[i].name, heap_name, MAX_HEAP_NAME))
+			break;
+	}
+
+	if (i == cnt) {
+		mfc_dev_err("heap %s is not found\n", heap_name);
+		return 0;
+	}
+
+	return 1 << data[i].heap_id;
+}
+
+#define ION_EXYNOS_FLAG_PROTECTED	(1 << 16)
+
 int mfc_mem_ion_alloc(struct mfc_dev *dev,
 		struct mfc_special_buf *special_buf)
 {
-	int flag = ION_FLAG_NOZEROED;
+	int flag = 0;
 	const char *heapname;
 
 	switch (special_buf->buftype) {
@@ -100,14 +111,16 @@ int mfc_mem_ion_alloc(struct mfc_dev *dev,
 	case MFCBUF_NORMAL_FW:
 		heapname = "vnfw_heap";
 		break;
+#if IS_ENABLED(CONFIG_EXYNOS_CONTENT_PATH_PROTECTION)
 	case MFCBUF_DRM:
 		heapname = "vframe_heap";
-		flag |= ION_FLAG_PROTECTED;
+		flag |= ION_EXYNOS_FLAG_PROTECTED;
 		break;
 	case MFCBUF_DRM_FW:
 		heapname = "vfw_heap";
-		flag |= ION_FLAG_PROTECTED;
+		flag |= ION_EXYNOS_FLAG_PROTECTED;
 		break;
+#endif
 	default:
 		heapname = "unknown";
 		mfc_dev_err("not supported mfc mem type: %d, heapname: %s\n",
@@ -115,7 +128,11 @@ int mfc_mem_ion_alloc(struct mfc_dev *dev,
 		return -EINVAL;
 	}
 
-	special_buf->dma_buf = ion_alloc_dmabuf(heapname, special_buf->size, flag);
+	special_buf->heapmask = __mfc_mem_ion_get_heapmask_by_name(dev, heapname);
+	if (!special_buf->heapmask)
+		return -EINVAL;
+
+	special_buf->dma_buf = ion_alloc(special_buf->size, special_buf->heapmask, flag);
 	if (IS_ERR(special_buf->dma_buf)) {
 		mfc_dev_err("Failed to allocate buffer (err %ld)\n",
 				PTR_ERR(special_buf->dma_buf));
@@ -138,16 +155,15 @@ int mfc_mem_ion_alloc(struct mfc_dev *dev,
 		goto err_map;
 	}
 
-	special_buf->daddr = ion_iovmm_map(special_buf->attachment, 0,
-			special_buf->size, DMA_BIDIRECTIONAL, 0);
+	special_buf->daddr = sg_dma_address(special_buf->sgt->sgl);
 	if (IS_ERR_VALUE(special_buf->daddr)) {
-		mfc_dev_err("Failed to allocate iova (err 0x%p)\n",
+		mfc_dev_err("Failed to get iova (err 0x%p)\n",
 				&special_buf->daddr);
-		goto err_iovmm;
+		goto err_daddr;
 	}
 
 	special_buf->vaddr = dma_buf_vmap(special_buf->dma_buf);
-	if (IS_ERR(special_buf->vaddr)) {
+	if (IS_ERR_OR_NULL(special_buf->vaddr)) {
 		mfc_dev_err("Failed to get vaddr (err 0x%p)\n",
 				&special_buf->vaddr);
 		goto err_vaddr;
@@ -158,8 +174,7 @@ int mfc_mem_ion_alloc(struct mfc_dev *dev,
 	return 0;
 err_vaddr:
 	special_buf->vaddr = NULL;
-	ion_iovmm_unmap(special_buf->attachment, special_buf->daddr);
-err_iovmm:
+err_daddr:
 	special_buf->daddr = 0;
 	dma_buf_unmap_attachment(special_buf->attachment, special_buf->sgt,
 				 DMA_BIDIRECTIONAL);
@@ -178,8 +193,6 @@ void mfc_mem_ion_free(struct mfc_special_buf *special_buf)
 {
 	if (special_buf->vaddr)
 		dma_buf_vunmap(special_buf->dma_buf, special_buf->vaddr);
-	if (special_buf->daddr)
-		ion_iovmm_unmap(special_buf->attachment, special_buf->daddr);
 	if (special_buf->sgt)
 		dma_buf_unmap_attachment(special_buf->attachment,
 					 special_buf->sgt, DMA_BIDIRECTIONAL);
@@ -203,7 +216,6 @@ void mfc_bufcon_put_daddr(struct mfc_ctx *ctx, struct mfc_buf *mfc_buf, int plan
 		if (mfc_buf->addr[i][plane]) {
 			mfc_debug(4, "[BUFCON] put batch buf addr[%d][%d]: 0x%08llx\n",
 					i, plane, mfc_buf->addr[i][plane]);
-			ion_iovmm_unmap(mfc_buf->attachments[i][plane], mfc_buf->addr[i][plane]);
 		}
 		if (mfc_buf->attachments[i][plane])
 			dma_buf_detach(mfc_buf->dmabufs[i][plane], mfc_buf->attachments[i][plane]);
@@ -293,11 +305,14 @@ void mfc_put_iovmm(struct mfc_ctx *ctx, struct dpb_table *dpb, int num_planes, i
 			index, dpb[index].fd[0], dpb[index].addr[0], dpb[index].mapcnt);
 
 	for (i = 0; i < num_planes; i++) {
-		if (dpb[index].addr[i]) {
+		if (dpb[index].attach[i] && (dev->skip_lazy_unmap || ctx->skip_lazy_unmap)) {
+			dpb[index].attach[i]->dma_map_attrs |= DMA_ATTR_SKIP_LAZY_UNMAP;
+			mfc_debug(4, "[LAZY_UNMAP] skip for dst plane[%d]\n", i);
+		}
+
+		if (dpb[index].addr[i])
 			mfc_debug(2, "[IOVMM] index %d buf[%d] fd: %d addr: %#llx\n",
 					index, i, dpb[index].fd[i], dpb[index].addr[i]);
-			ion_iovmm_unmap(dpb[index].attach[i], dpb[index].addr[i]);
-		}
 		if (dpb[index].sgt[i])
 			dma_buf_unmap_attachment(dpb[index].attach[i], dpb[index].sgt[i],
 					DMA_BIDIRECTIONAL);
@@ -320,17 +335,16 @@ void mfc_put_iovmm(struct mfc_ctx *ctx, struct dpb_table *dpb, int num_planes, i
 		mfc_ctx_err("[IOVMM] DPB[%d] %#llx invalid mapcnt %d\n",
 				index, dpb[index].addr[0], dpb[index].mapcnt);
 		call_dop(dev, dump_and_stop_debug_mode, dev);
+		dpb[index].mapcnt = 0;
 	}
 }
 
 void mfc_get_iovmm(struct mfc_ctx *ctx, struct vb2_buffer *vb, struct dpb_table *dpb)
 {
 	struct mfc_dev *dev = ctx->dev;
-	struct vb2_queue *vq = vb->vb2_queue;
 	int i, mem_get_count = 0;
 	struct mfc_buf *mfc_buf = vb_to_mfc_buf(vb);
 	int index = mfc_buf->dpb_index;
-	int ioprot = IOMMU_READ | IOMMU_WRITE;
 
 	if (dpb[index].mapcnt != 0) {
 		mfc_ctx_err("[IOVMM] DPB[%d] %#llx invalid mapcnt %d\n",
@@ -368,13 +382,9 @@ void mfc_get_iovmm(struct mfc_ctx *ctx, struct vb2_buffer *vb, struct dpb_table 
 			goto err_iovmm;
 		}
 
-		if (device_get_dma_attr(dev->device) == DEV_DMA_COHERENT)
-			ioprot |= IOMMU_CACHE;
-
-		dpb[index].addr[i] = ion_iovmm_map(dpb[index].attach[i],
-				0, ctx->raw_buf.plane_size[i], vq->dma_dir, ioprot);
+		dpb[index].addr[i] = sg_dma_address(dpb[index].sgt[i]->sgl);
 		if (IS_ERR_VALUE(dpb[index].addr[i])) {
-			mfc_ctx_err("[IOVMM] Failed to allocate iova (err 0x%p)\n",
+			mfc_ctx_err("[IOVMM] Failed to get iova (err 0x%p)\n",
 					&dpb[index].addr[i]);
 			dpb[index].addr[i] = 0;
 			goto err_iovmm;
@@ -478,7 +488,45 @@ void mfc_cleanup_iovmm_except_used(struct mfc_ctx *ctx)
 	mutex_unlock(&dec->dpb_mutex);
 }
 
-#if IS_ENABLED(CONFIG_MFC_USES_OTF)
+int mfc_remap_firmware(struct mfc_core *core, struct mfc_special_buf *fw_buf)
+{
+	struct mfc_dev *dev = core->dev;
+	dma_addr_t fw_base_addr;
+	int ret;
+
+	fw_base_addr = MFC_BASE_ADDR + dev->fw_base_offset;
+
+	fw_buf->map_size = iommu_map_sg(core->domain, fw_base_addr,
+			fw_buf->sgt->sgl,
+			fw_buf->sgt->nents,
+			IOMMU_READ|IOMMU_WRITE);
+	if (!fw_buf->map_size) {
+		mfc_core_err("Failed to remap iova (err %#llx)\n",
+				fw_buf->daddr);
+		return -ENOMEM;
+	}
+
+	fw_buf->daddr = fw_base_addr;
+	dev->fw_base_offset += fw_buf->map_size;
+
+	if (fw_base_addr == MFC_BASE_ADDR) {
+		ret = iommu_dma_reserve_iova(core->device, 0x0, MFC_BASE_ADDR);
+		if (ret) {
+			mfc_core_err("failed to reserve dva for firmware %d\n", ret);
+			return -ENOMEM;
+		}
+	}
+
+	ret = iommu_dma_reserve_iova(core->device, fw_buf->daddr,
+					fw_buf->map_size);
+	if (ret) {
+		mfc_core_err("failed to reserve dva for firmware %d\n", ret);
+		return -ENOMEM;
+	}
+
+	return 0;
+}
+
 int mfc_map_votf_sfr(struct mfc_core *core, unsigned int addr)
 {
 	struct mfc_core_platdata *pdata = core->core_pdata;
@@ -517,4 +565,31 @@ void mfc_unmap_votf_sfr(struct mfc_core *core, unsigned int addr)
 
 	iommu_unmap(core->domain, daddr, map_size);
 }
-#endif
+
+void mfc_check_iova(struct mfc_dev *dev)
+{
+	struct mfc_platdata *pdata = dev->pdata;
+	struct mfc_ctx *ctx;
+	unsigned long total_iova = 0;
+
+	if (!pdata->iova_threshold)
+		return;
+
+	/*
+	 * The number of extra dpb is 8
+	 * OMX: extra buffer 5, platform buffer 3
+	 * Codec2: platform buffer 8
+	 */
+	list_for_each_entry(ctx, &dev->ctx_list, list)
+		total_iova += (ctx->raw_buf.total_plane_size *
+				(ctx->dpb_count + MFC_EXTRA_DPB + 3)) / 1024;
+
+	if (total_iova > (pdata->iova_threshold * 1024))
+		dev->skip_lazy_unmap = 1;
+	else
+		dev->skip_lazy_unmap = 0;
+
+	mfc_dev_debug(2, "[LAZY_UNMAP] Now the IOVA for DPB is %d/%dMB, LAZY_UNMAP %s\n",
+			total_iova / 1024, pdata->iova_threshold,
+			dev->skip_lazy_unmap ? "disable" : "enable");
+}

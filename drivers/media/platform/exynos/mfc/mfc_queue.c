@@ -472,50 +472,50 @@ void mfc_move_buf_all(struct mfc_ctx *ctx, struct mfc_buf_queue *to_queue,
 	spin_unlock_irqrestore(&ctx->buf_queue_lock, flags);
 }
 
-void mfc_return_buf_to_ready_queue(struct mfc_ctx *ctx, struct mfc_buf_queue *maincore_queue,
-		struct mfc_buf_queue *subcore_queue)
+void mfc_return_buf_to_ready_queue(struct mfc_ctx *ctx, struct mfc_buf_queue *master_queue,
+		struct mfc_buf_queue *slave_queue)
 {
 	struct mfc_dev *dev = ctx->dev;
 	struct mfc_buf_queue *to_queue = &ctx->src_buf_ready_queue;
 	struct mfc_buf_queue *first_queue, *second_queue;
 	unsigned long flags;
 	struct mfc_buf *mfc_buf = NULL;
-	int maincore_src_index = -1, subcore_src_index = -1;
+	int master_src_index = -1, slave_src_index = -1;
 
 	spin_lock_irqsave(&ctx->buf_queue_lock, flags);
 
-	if (list_empty(&maincore_queue->head) && list_empty(&subcore_queue->head)) {
+	if (list_empty(&master_queue->head) && list_empty(&slave_queue->head)) {
 		mfc_debug(2, "all src queue of core_ctx is empty\n");
 		spin_unlock_irqrestore(&ctx->buf_queue_lock, flags);
 		return;
 	}
 
 	/* Search the last distributed src index */
-	if (!list_empty(&maincore_queue->head)) {
-		mfc_buf = list_entry(maincore_queue->head.prev, struct mfc_buf, list);
-		maincore_src_index = mfc_buf->src_index;
-		mfc_debug(4, "maincore src last buf src index: %d\n", maincore_src_index);
+	if (!list_empty(&master_queue->head)) {
+		mfc_buf = list_entry(master_queue->head.prev, struct mfc_buf, list);
+		master_src_index = mfc_buf->src_index;
+		mfc_debug(4, "master src last buf src index: %d\n", master_src_index);
 	}
-	if (!list_empty(&subcore_queue->head)) {
-		mfc_buf = list_entry(subcore_queue->head.prev, struct mfc_buf, list);
-		subcore_src_index = mfc_buf->src_index;
-		mfc_debug(4, "subcore src last buf src index: %d\n", subcore_src_index);
+	if (!list_empty(&slave_queue->head)) {
+		mfc_buf = list_entry(slave_queue->head.prev, struct mfc_buf, list);
+		slave_src_index = mfc_buf->src_index;
+		mfc_debug(4, "slave src last buf src index: %d\n", slave_src_index);
 	}
 
-	MFC_TRACE_RM("[c:%d] last src index maincore %d subcore %d\n",
-			ctx->num, maincore_src_index, subcore_src_index);
+	MFC_TRACE_RM("[c:%d] last src index master %d slave %d\n",
+			ctx->num, master_src_index, slave_src_index);
 
 	/* Select the core_ctx->src_buf_queue to take out first */
-	if (maincore_src_index > subcore_src_index) {
-		first_queue = maincore_queue;
-		second_queue = subcore_queue;
-		mfc_debug(2, "last src index (maincore:%d, subcore:%d) move first maincore\n",
-				maincore_src_index, subcore_src_index);
+	if (master_src_index > slave_src_index) {
+		first_queue = master_queue;
+		second_queue = slave_queue;
+		mfc_debug(2, "last src index (master:%d, slave:%d) move first master\n",
+				master_src_index, slave_src_index);
 	} else {
-		first_queue = subcore_queue;
-		second_queue = maincore_queue;
-		mfc_debug(2, "last src index (maincore:%d, subcore:%d) move first subcore\n",
-				maincore_src_index, subcore_src_index);
+		first_queue = slave_queue;
+		second_queue = master_queue;
+		mfc_debug(2, "last src index (master:%d, slave:%d) move first slave\n",
+				master_src_index, slave_src_index);
 	}
 
 	/* Src index is sequentially returned to ready_queue */
@@ -548,13 +548,11 @@ void mfc_return_buf_to_ready_queue(struct mfc_ctx *ctx, struct mfc_buf_queue *ma
 
 		if (list_empty(&first_queue->head) && list_empty(&second_queue->head)) {
 			mfc_debug(2, "all src of core_ctx return to ready_queue\n");
-			mfc_debug(2, "ready %d maincore %d subcore %d\n",
-					to_queue->count, maincore_queue->count,
-					subcore_queue->count);
+			mfc_debug(2, "ready %d master %d slave %d\n",
+					to_queue->count, master_queue->count, slave_queue->count);
 			MFC_TRACE_RM("[c:%d] all src return to ready\n", ctx->num);
-			MFC_TRACE_RM("[c:%d] ready %d maincore %d subcore %d\n", ctx->num,
-					to_queue->count, maincore_queue->count,
-					subcore_queue->count);
+			MFC_TRACE_RM("[c:%d] ready %d master %d slave %d\n", ctx->num,
+					to_queue->count, master_queue->count, slave_queue->count);
 			INIT_LIST_HEAD(&first_queue->head);
 			first_queue->count = 0;
 			INIT_LIST_HEAD(&second_queue->head);
@@ -680,7 +678,7 @@ int mfc_check_for_dpb(struct mfc_core_ctx *core_ctx)
 	struct mfc_ctx *ctx = core_ctx->ctx;
 	struct mfc_dec *dec = ctx->dec_priv;
 	struct mfc_buf *mfc_buf = NULL;
-	unsigned long flags;
+	unsigned long flags, used_flag_count;
 
 	spin_lock_irqsave(&ctx->buf_queue_lock, flags);
 
@@ -703,8 +701,10 @@ int mfc_check_for_dpb(struct mfc_core_ctx *core_ctx)
 		}
 	}
 
-	if (hweight64(dec->dynamic_used) == ctx->dpb_count + MFC_EXTRA_DPB) {
-		mfc_debug(2, "[DPB] All queued buf referencing\n");
+	used_flag_count = hweight64(dec->dynamic_used);
+	if (used_flag_count >= ctx->dpb_count) {
+		mfc_debug(2, "[DPB] All DPB(%ld) of min count are referencing\n",
+				used_flag_count);
 		spin_unlock_irqrestore(&ctx->buf_queue_lock, flags);
 		return 1;
 	}
@@ -720,7 +720,7 @@ struct mfc_buf *mfc_search_for_dpb(struct mfc_core_ctx *core_ctx)
 {
 	struct mfc_ctx *ctx = core_ctx->ctx;
 	struct mfc_dec *dec = ctx->dec_priv;
-	unsigned long flags;
+	unsigned long flags, used_flag_count;
 	struct mfc_buf *mfc_buf = NULL;
 
 	spin_lock_irqsave(&ctx->buf_queue_lock, flags);
@@ -740,17 +740,19 @@ struct mfc_buf *mfc_search_for_dpb(struct mfc_core_ctx *core_ctx)
 	}
 
 	/*
+	 * Bumping process
 	 * In case of H.264/HEVC codec,
 	 * all of the queued buffers can be referenced by F/W.
 	 * At that time, we should set the any DPB to F/W,
 	 * F/W will returns display only buffer whether if reference or not.
 	 * In this way the reference can be released by circulating.
 	 */
-	if (hweight64(dec->dynamic_used) == ctx->dpb_count + MFC_EXTRA_DPB) {
+	used_flag_count = hweight64(dec->dynamic_used);
+	if (used_flag_count >= ctx->dpb_count) {
 		mfc_buf = list_entry(ctx->dst_buf_queue.head.next, struct mfc_buf, list);
 		mfc_buf->used = 1;
-		mfc_debug(2, "[DPB] All queued buf referencing. select buf[%d][%d]\n",
-				mfc_buf->vb.vb2_buf.index, mfc_buf->dpb_index);
+		mfc_debug(2, "[DPB] All DPB(%ld) of min count are referencing. select buf[%d][%d]\n",
+				used_flag_count, mfc_buf->vb.vb2_buf.index, mfc_buf->dpb_index);
 		dec->dynamic_set = 1UL << mfc_buf->dpb_index;
 		core_ctx->dynamic_set = 1UL << mfc_buf->dpb_index;
 		spin_unlock_irqrestore(&ctx->buf_queue_lock, flags);
@@ -782,7 +784,7 @@ struct mfc_buf *mfc_search_move_dpb_nal_q(struct mfc_core_ctx *core_ctx)
 	struct mfc_ctx *ctx = core_ctx->ctx;
 	struct mfc_dec *dec = ctx->dec_priv;
 	struct mfc_buf *mfc_buf = NULL;
-	unsigned long flags;
+	unsigned long flags, used_flag_count;
 
 	spin_lock_irqsave(&ctx->buf_queue_lock, flags);
 	list_for_each_entry(mfc_buf, &ctx->dst_buf_queue.head, list) {
@@ -801,15 +803,18 @@ struct mfc_buf *mfc_search_move_dpb_nal_q(struct mfc_core_ctx *core_ctx)
 	}
 
 	/*
+	 * Bumping process
 	 * In case of H.264/HEVC codec,
 	 * all of the queued buffers can be referenced by F/W.
 	 * In NAL_Q mode, F/W couldn't know when the buffer
 	 * that returned to the display index was displayed.
 	 * Therefore, NAL_Q mode can't be continued.
 	 */
-	if (hweight64(dec->dynamic_used) == ctx->dpb_count + MFC_EXTRA_DPB) {
+	used_flag_count = hweight64(dec->dynamic_used);
+	if (used_flag_count >= ctx->dpb_count) {
 		dec->is_dpb_full = 1;
-		mfc_debug(2, "[NALQ][DPB] full reference\n");
+		mfc_debug(2, "[NALQ][DPB] All DPB(%ld) of min count are referencing\n",
+				used_flag_count);
 		spin_unlock_irqrestore(&ctx->buf_queue_lock, flags);
 		return NULL;
 	}
@@ -986,13 +991,13 @@ void mfc_store_dpb(struct mfc_ctx *ctx, struct vb2_buffer *vb)
 		ctx->dst_buf_err_queue.count++;
 		mfc_debug(2, "[DPB] DPB[%d][%d] fd: %d will be not used %#llx %s %s (%d)\n",
 				mfc_buf->vb.vb2_buf.index, index,
-				mfc_buf->vb.vb2_buf.planes[0].m.fd, mfc_buf->addr[0][0],
+				mfc_buf->vb.planes[0].m.fd, mfc_buf->addr[0][0],
 				(dec->dynamic_used & (1UL << index)) ? "ref" : "no-ref",
 				dec->dpb[index].queued ? "q" : "dq",
 				ctx->dst_buf_err_queue.count);
 		MFC_TRACE_CTX("unused DPB[%d][%d] fd: %d %#llx %s %s (%d)\n",
 				mfc_buf->vb.vb2_buf.index, index,
-				mfc_buf->vb.vb2_buf.planes[0].m.fd, mfc_buf->addr[0][0],
+				mfc_buf->vb.planes[0].m.fd, mfc_buf->addr[0][0],
 				(dec->dynamic_used & (1UL << index)) ? "ref" : "no-ref",
 				dec->dpb[index].queued ? "q" : "dq",
 				ctx->dst_buf_err_queue.count);
@@ -1099,4 +1104,40 @@ int mfc_check_buf_mb_flag(struct mfc_core_ctx *core_ctx, enum mfc_mb_flag f)
 	spin_unlock_irqrestore(&core_ctx->buf_queue_lock, flags);
 
 	return 0;
+}
+
+void mfc_dec_drc_find_del_buf(struct mfc_core_ctx *core_ctx)
+{
+	struct mfc_ctx *ctx = core_ctx->ctx;
+	struct mfc_core *core = core_ctx->core;
+	struct mfc_buf *dst_mb;
+	int i;
+
+	dst_mb = mfc_get_del_buf(ctx, &ctx->dst_buf_queue, MFC_BUF_NO_TOUCH_USED);
+	if (!dst_mb)
+		return;
+
+	mfc_ctx_info("[DRC] already stopped and dqbuf with DRC\n");
+	i = dst_mb->vb.vb2_buf.index;
+	dst_mb->vb.flags |= V4L2_BUF_FLAG_PFRAME;
+
+	mfc_clear_mb_flag(dst_mb);
+	dst_mb->vb.flags &= ~(V4L2_BUF_FLAG_KEYFRAME |
+			V4L2_BUF_FLAG_PFRAME |
+			V4L2_BUF_FLAG_BFRAME |
+			V4L2_BUF_FLAG_ERROR);
+
+	if (call_cop(ctx, core_get_buf_ctrls_val, core, ctx, &ctx->dst_ctrls[i]) < 0)
+		mfc_ctx_err("[DRC] failed in core_get_buf_ctrls\n");
+
+	call_cop(ctx, get_buf_update_val, ctx, &ctx->dst_ctrls[i],
+			V4L2_CID_MPEG_MFC51_VIDEO_DISPLAY_STATUS,
+			MFC_REG_DEC_STATUS_DECODING_EMPTY);
+	call_cop(ctx, get_buf_update_val, ctx, &ctx->dst_ctrls[i],
+			V4L2_CID_MPEG_MFC51_VIDEO_FRAME_TAG, UNUSED_TAG);
+
+	ctx->wait_state = WAIT_G_FMT | WAIT_STOP;
+	mfc_debug(2, "[DRC] Decoding waiting again! : %d\n", ctx->wait_state);
+	MFC_TRACE_CTX("[DRC] wait again\n");
+	vb2_buffer_done(&dst_mb->vb.vb2_buf, VB2_BUF_STATE_DONE);
 }

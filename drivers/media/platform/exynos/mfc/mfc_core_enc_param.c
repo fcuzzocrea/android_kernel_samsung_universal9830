@@ -60,7 +60,7 @@ void mfc_core_set_slice_mode(struct mfc_core *core, struct mfc_ctx *ctx)
 	struct mfc_enc *enc = ctx->enc_priv;
 
 	/* multi-slice control */
-	if (enc->slice_mode == V4L2_MPEG_VIDEO_MULTI_SICE_MODE_MAX_BYTES)
+	if (enc->slice_mode == V4L2_MPEG_VIDEO_MULTI_SLICE_MODE_MAX_BYTES)
 		MFC_CORE_RAW_WRITEL((enc->slice_mode + 0x4), MFC_REG_E_MSLICE_MODE);
 	else if (enc->slice_mode == V4L2_MPEG_VIDEO_MULTI_SLICE_MODE_MAX_MB_ROW)
 		MFC_CORE_RAW_WRITEL((enc->slice_mode - 0x2), MFC_REG_E_MSLICE_MODE);
@@ -70,10 +70,10 @@ void mfc_core_set_slice_mode(struct mfc_core *core, struct mfc_ctx *ctx)
 		MFC_CORE_RAW_WRITEL(enc->slice_mode, MFC_REG_E_MSLICE_MODE);
 
 	/* multi-slice MB number or bit size */
-	if ((enc->slice_mode == V4L2_MPEG_VIDEO_MULTI_SICE_MODE_MAX_MB) ||
+	if ((enc->slice_mode == V4L2_MPEG_VIDEO_MULTI_SLICE_MODE_MAX_MB) ||
 			(enc->slice_mode == V4L2_MPEG_VIDEO_MULTI_SLICE_MODE_MAX_MB_ROW)) {
 		MFC_CORE_RAW_WRITEL(enc->slice_size_mb, MFC_REG_E_MSLICE_SIZE_MB);
-	} else if ((enc->slice_mode == V4L2_MPEG_VIDEO_MULTI_SICE_MODE_MAX_BYTES) ||
+	} else if ((enc->slice_mode == V4L2_MPEG_VIDEO_MULTI_SLICE_MODE_MAX_BYTES) ||
 			(enc->slice_mode == V4L2_MPEG_VIDEO_MULTI_SLICE_MODE_MAX_FIXED_BYTES)){
 		MFC_CORE_RAW_WRITEL(enc->slice_size_bits, MFC_REG_E_MSLICE_SIZE_BITS);
 	} else {
@@ -109,6 +109,28 @@ void mfc_core_set_enc_config_qp(struct mfc_core *core, struct mfc_ctx *ctx)
 		reg |= (enc->config_qp & 0xFF) << 24;
 		MFC_CORE_WRITEL(reg, MFC_REG_E_FIXED_PICTURE_QP);
 	}
+}
+
+void mfc_core_set_enc_ts_delta(struct mfc_core *core, struct mfc_ctx *ctx)
+{
+	struct mfc_enc *enc = ctx->enc_priv;
+	struct mfc_enc_params *p = &enc->params;
+	unsigned int reg = 0;
+	int ts_delta;
+
+	ts_delta = mfc_enc_get_ts_delta(ctx);
+
+	reg = MFC_CORE_READL(MFC_REG_E_TIME_STAMP_DELTA);
+	reg &= ~(0xFFFF);
+	reg |= (ts_delta & 0xFFFF);
+	MFC_CORE_WRITEL(reg, MFC_REG_E_TIME_STAMP_DELTA);
+	if (ctx->src_ts.ts_last_interval)
+		mfc_debug(3, "[DFR] fps %d -> %ld, delta: %d, reg: %#x\n",
+				p->rc_framerate, USEC_PER_SEC / ctx->src_ts.ts_last_interval,
+				ts_delta, reg);
+	else
+		mfc_debug(3, "[DFR] fps %d -> 0, delta: %d, reg: %#x\n",
+				p->rc_framerate, ts_delta, reg);
 }
 
 static void __mfc_set_gop_size(struct mfc_core *core, struct mfc_ctx *ctx,
@@ -251,9 +273,9 @@ static void __mfc_set_enc_params(struct mfc_core *core, struct mfc_ctx *ctx)
 	/* multi-slice MB number or bit size */
 	enc->slice_mode = p->slice_mode;
 
-	if (p->slice_mode == V4L2_MPEG_VIDEO_MULTI_SICE_MODE_MAX_MB) {
+	if (p->slice_mode == V4L2_MPEG_VIDEO_MULTI_SLICE_MODE_MAX_MB) {
 		enc->slice_size_mb = p->slice_mb;
-	} else if ((p->slice_mode == V4L2_MPEG_VIDEO_MULTI_SICE_MODE_MAX_BYTES) ||
+	} else if ((p->slice_mode == V4L2_MPEG_VIDEO_MULTI_SLICE_MODE_MAX_BYTES) ||
 			(p->slice_mode == V4L2_MPEG_VIDEO_MULTI_SLICE_MODE_MAX_FIXED_BYTES)){
 		enc->slice_size_bits = p->slice_bit;
 	} else if (p->slice_mode == V4L2_MPEG_VIDEO_MULTI_SLICE_MODE_MAX_MB_ROW) {
@@ -305,15 +327,12 @@ static void __mfc_set_enc_params(struct mfc_core *core, struct mfc_ctx *ctx)
 		else if (ctx->sbwcl_ratio == 75 || ctx->sbwcl_ratio == 80)
 			mfc_clear_set_bits(reg, 0x3, 24, 2);
 	}
-
-#if IS_ENABLED(CONFIG_MFC_USES_OTF)
 	/* GDC-MFC vOTF enable */
 	mfc_clear_bits(reg, 0x1, 26);
 	if (ctx->gdc_votf && core->has_gdc_votf && core->has_mfc_votf) {
 		mfc_set_bits(reg, 0x1, 26, 0x1);
 		mfc_debug(2, "[vOTF] GDC-MFC vOTF is enabled\n");
 	}
-#endif
 
 	MFC_CORE_RAW_WRITEL(reg, MFC_REG_E_ENC_OPTIONS);
 
@@ -350,6 +369,8 @@ static void __mfc_set_enc_params(struct mfc_core *core, struct mfc_ctx *ctx)
 	mfc_clear_set_bits(reg, 0x1, 9, p->rc_frame);
 	/* drop control */
 	mfc_clear_set_bits(reg, 0x1, 10, p->drop_control);
+	if (MFC_FEATURE_SUPPORT(dev, dev->pdata->enc_ts_delta))
+		mfc_clear_set_bits(reg, 0x1, 20, 1);
 	MFC_CORE_RAW_WRITEL(reg, MFC_REG_E_RC_CONFIG);
 
 	/*
@@ -393,6 +414,12 @@ static void __mfc_set_enc_params(struct mfc_core *core, struct mfc_ctx *ctx)
 		if (p->rc_mb)
 			mfc_set_bits(reg, 0x3, 4, p->rc_pvc);
 	}
+
+	if (MFC_FEATURE_SUPPORT(dev, dev->pdata->min_quality_mode) && p->min_quality_mode) {
+		mfc_set_bits(reg, 0x1, 7, p->min_quality_mode);
+		mfc_debug(2, "MIN quality mode is enabled\n");
+	}
+
 	MFC_CORE_RAW_WRITEL(reg, MFC_REG_E_RC_MODE);
 
 	/* extended encoder ctrl */
@@ -621,7 +648,10 @@ static void __mfc_set_enc_params_h264(struct mfc_core *core,
 	/* VUI parameter disable */
 	mfc_clear_set_bits(reg, 0x1, 30, p_264->vui_enable);
 	/* Timing info */
-	mfc_set_bits(reg, 0x1, 31, 0x1);
+	if (dev->pdata->enc_timing_dis)
+		mfc_set_bits(reg, 0x1, 31, 0x0);
+	else
+		mfc_set_bits(reg, 0x1, 31, 0x1);
 	MFC_CORE_RAW_WRITEL(reg, MFC_REG_E_H264_OPTIONS);
 
 	/* cropped height */
@@ -1271,7 +1301,10 @@ static void __mfc_set_enc_params_hevc(struct mfc_core *core,
 
 	reg = MFC_CORE_RAW_READL(MFC_REG_E_HEVC_OPTIONS_2);
 	/* Timing info */
-	mfc_set_bits(reg, 0x1, 2, 0x1);
+	if (dev->pdata->enc_timing_dis)
+		mfc_set_bits(reg, 0x1, 2, 0x0);
+	else
+		mfc_set_bits(reg, 0x1, 2, 0x1);
 	MFC_CORE_RAW_WRITEL(reg, MFC_REG_E_HEVC_OPTIONS_2);
 
 	/* refresh period */
@@ -1492,6 +1525,28 @@ int mfc_core_set_enc_params(struct mfc_core *core, struct mfc_ctx *ctx)
 			MFC_CORE_RAW_READL(MFC_REG_E_RC_FRAME_RATE),
 			MFC_CORE_RAW_READL(MFC_REG_E_RC_CONFIG),
 			MFC_CORE_RAW_READL(MFC_REG_E_RC_MODE));
+
+	return 0;
+}
+
+int mfc_core_get_enc_bframe(struct mfc_ctx *ctx)
+{
+	struct mfc_enc *enc = ctx->enc_priv;
+	struct mfc_enc_params *p = &enc->params;
+	int hier_qp_type = -EINVAL;
+	u8 num_hier_layer = 0;
+
+	if (IS_H264_ENC(ctx)) {
+		num_hier_layer = p->codec.h264.num_hier_layer;
+		hier_qp_type = (int)p->codec.h264.hier_qp_type;
+	} else if (IS_HEVC_ENC(ctx)) {
+		num_hier_layer = p->codec.hevc.num_hier_layer;
+		hier_qp_type = (int)p->codec.hevc.hier_qp_type;
+	}
+
+	if (enc->params.num_b_frame || ((num_hier_layer >= 2) &&
+				(hier_qp_type == V4L2_MPEG_VIDEO_HEVC_HIERARCHICAL_CODING_B)))
+		return 1;
 
 	return 0;
 }

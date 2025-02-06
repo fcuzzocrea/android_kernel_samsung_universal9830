@@ -134,8 +134,8 @@ struct mfc_buf *mfc_find_del_buf(struct mfc_ctx *ctx, struct mfc_buf_queue *queu
 
 void mfc_move_buf_all(struct mfc_ctx *ctx, struct mfc_buf_queue *to_queue,
 		struct mfc_buf_queue *from_queue, enum mfc_queue_top_type top);
-void mfc_return_buf_to_ready_queue(struct mfc_ctx *ctx, struct mfc_buf_queue *maincore_queue,
-		struct mfc_buf_queue *subcore_queue);
+void mfc_return_buf_to_ready_queue(struct mfc_ctx *ctx, struct mfc_buf_queue *master_queue,
+		struct mfc_buf_queue *slave_queue);
 
 void mfc_cleanup_queue(spinlock_t *plock, struct mfc_buf_queue *queue);
 
@@ -151,4 +151,5 @@ void mfc_cleanup_nal_queue(struct mfc_core_ctx *core_ctx);
 
 int mfc_check_buf_mb_flag(struct mfc_core_ctx *core_ctx, enum mfc_mb_flag f);
 
+void mfc_dec_drc_find_del_buf(struct mfc_core_ctx *core_ctx);
 #endif /* __MFC_QUEUE_H */

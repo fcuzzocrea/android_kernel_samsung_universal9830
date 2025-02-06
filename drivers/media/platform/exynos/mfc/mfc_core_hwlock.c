@@ -698,12 +698,10 @@ static int __mfc_just_run_enc(struct mfc_core *core, struct mfc_ctx *ctx)
 		ret = mfc_core_run_enc_last_frames(core, ctx);
 		break;
 	case MFCINST_RUNNING:
-#if IS_ENABLED(CONFIG_MFC_USES_OTF)
 		if (ctx->otf_handle) {
 			ret = mfc_core_otf_run_enc_frame(core, ctx);
 			break;
 		}
-#endif
 		ret = mfc_core_run_enc_frame(core, ctx);
 		break;
 	case MFCINST_INIT:
@@ -713,12 +711,10 @@ static int __mfc_just_run_enc(struct mfc_core *core, struct mfc_ctx *ctx)
 		ret = mfc_core_cmd_close_inst(core, ctx);
 		break;
 	case MFCINST_GOT_INST:
-#if IS_ENABLED(CONFIG_MFC_USES_OTF)
 		if (ctx->otf_handle) {
 			ret = mfc_core_otf_run_enc_init(core, ctx);
 			break;
 		}
-#endif
 		ret = mfc_core_run_enc_init(core, ctx);
 		break;
 	case MFCINST_HEAD_PARSED:
@@ -869,7 +865,8 @@ void mfc_core_hwlock_handler_irq(struct mfc_core *core, struct mfc_ctx *ctx,
 	spin_lock_irqsave(&core->hwlock.lock, flags);
 	__mfc_print_hwlock(core);
 
-	if ((core_ctx->state == MFCINST_RUNNING) && IS_TWO_MODE2(ctx))
+	if (((core_ctx->state == MFCINST_RUNNING) && IS_TWO_MODE2(ctx)) ||
+			(core_ctx->state == MFCINST_RES_CHANGE_INIT && IS_MULTI_MODE(ctx)))
 		need_butler = 1;
 
 	if (core->hwlock.owned_by_irq) {

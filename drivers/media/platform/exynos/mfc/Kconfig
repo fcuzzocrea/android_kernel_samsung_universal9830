@@ -9,7 +9,7 @@ config VIDEO_EXYNOS_MFC
 
 config MFC_USES_LLC
 	  bool "MFC LLC support"
-	  default n
+	  default y
 	  depends on VIDEO_EXYNOS_MFC
 	  help
 	  Uses the LLC of MFC.

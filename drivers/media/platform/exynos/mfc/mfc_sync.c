@@ -412,7 +412,8 @@ int __mfc_dec_ctx_ready_set_bit(struct mfc_core_ctx *core_ctx,
 
 	/* Resolution change */
 	else if ((core_ctx->state == MFCINST_RES_CHANGE_INIT || core_ctx->state == MFCINST_RES_CHANGE_FLUSH) &&
-		dst_buf_queue_check_available)
+		dst_buf_queue_check_available &&
+		IS_SINGLE_MODE(ctx))
 		is_ready = 1;
 
 	else if (core_ctx->state == MFCINST_RES_CHANGE_END &&
@@ -437,7 +438,6 @@ int __mfc_dec_ctx_ready_set_bit(struct mfc_core_ctx *core_ctx,
 
 	if (ctx->boosting_time && queue_cnt <= 1) {
 		u64 ktime = ktime_get_ns();
-
 		if ((ctx->boosting_time <= ktime) ||
 			(ctx->boosting_time - ktime) < MFC_BOOST_OFF_TIME) {
 			mfc_debug(2, "[BOOST] seeking booster terminated %ld.%06ld\n",
