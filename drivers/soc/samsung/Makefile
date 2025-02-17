@@ -83,6 +83,9 @@ obj-$(CONFIG_EXYNOS_HDCP2)  += exynos-hdcp/
 # secmem
 obj-$(CONFIG_ARCH_EXYNOS)       += secmem.o
 
+# Exynos Image Loader
+obj-$(CONFIG_EXYNOS_IMGLOADER)       += imgloader.o
+
 # SDM
 obj-$(CONFIG_EXYNOS_SDM) += exynos-sdm.o
 

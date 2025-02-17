@@ -59,7 +59,7 @@
 		fmp0 = &fmp_0;
 		mshc2 = &dwmmc_2;
 		scaler0 = &scaler_0;
-		mfc0 = &mfc_0;
+		mfc0 = &mfc_core0;
 	};
 
 	ect {
@@ -1808,7 +1808,7 @@
 		#size-cells = <1>;
 		ranges;
 
-		domain-clients = <&mfc_0>, <&tsmux>;
+		domain-clients = <&mfc_core0>, <&tsmux>;
 	};
 
 	tsmux: tsmux@186E0000 {

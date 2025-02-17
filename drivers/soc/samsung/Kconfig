@@ -226,6 +226,12 @@ config EXYNOS_PPMPU_FAIL_DETECTOR
 	help
 	  Support Exynos PPMPU Fail Detector
 
+config EXYNOS_IMGLOADER
+	tristate "Exynos Image Loader"
+	default n
+	help
+	  Enable Image Loader for Exynos SoC.
+
 config EXYNOS_SDM
 	bool "Exynos Security Dump Manager Support"
 	depends on DEBUG_SNAPSHOT
