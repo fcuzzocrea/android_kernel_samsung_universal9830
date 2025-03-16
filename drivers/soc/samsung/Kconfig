@@ -226,6 +226,22 @@ config EXYNOS_PPMPU_FAIL_DETECTOR
 	help
 	  Support Exynos PPMPU Fail Detector
 
+config EXYNOS_MEMORY_LOGGER
+	tristate "Exynos Memory Logger"
+	default n
+	help
+	  Exynos Memory Logger API is provided by memlog driver.
+
+	  Memlog means exynos memory Logger driver. The memlog provides
+	  the logging method desired by each driver in memory for debugging,
+	  memlog provides APIs for memory logging.
+
+config EXYNOS_SYSTEM_EVENT
+	tristate "Exynos System Event Framework"
+	default n
+	help
+	  Enable System Event Framework for Exynos SoC.
+
 config EXYNOS_IMGLOADER
 	tristate "Exynos Image Loader"
 	default n

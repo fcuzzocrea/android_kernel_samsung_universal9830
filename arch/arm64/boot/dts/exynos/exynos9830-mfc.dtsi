@@ -28,7 +28,7 @@
 		/* samsung,tzmp; */
 
 		/* MFC version */
-		ip_ver = <0x1022>;
+		ip_ver = <0x14000100>;
 
 		/* Debug mode */
 		debug_mode = <1>;
@@ -189,7 +189,7 @@
 			/* samsung,imgloader-s2mpu-support */
 
 			/* MFC version */
-			ip_ver = <0x1022>;
+			ip_ver = <0x14000100>;
 
 			/* Sysmmu check */
 			share_sysmmu = <0>;

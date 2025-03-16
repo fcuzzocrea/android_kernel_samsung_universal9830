@@ -459,6 +459,7 @@ void mfc_init_debugfs(struct mfc_dev *dev)
 
 	dev->debugfs.memlog_level = MFC_DEFAULT_MEMLOG_LEVEL;
 	dev->debugfs.logging_option = MFC_DEFAULT_LOGGING_OPTION;
+	dev->debugfs.debug_level = 5;
 
 	debugfs->d_mfc_info = debugfs_create_file("mfc_info",
 			0444, debugfs->root, dev, &mfc_info_fops);

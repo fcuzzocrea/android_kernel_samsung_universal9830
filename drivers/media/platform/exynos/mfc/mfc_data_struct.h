@@ -52,7 +52,7 @@
 #include "mfc_media.h"
 
 /* DEBUGFS */
-#define MFC_DEFAULT_MEMLOG_LEVEL	2
+#define MFC_DEFAULT_MEMLOG_LEVEL	5
 #define MFC_DEFAULT_LOGGING_OPTION	0x7
 
 #define MFC_NUM_CORE			2
@@ -666,7 +666,6 @@ struct mfc_special_buf {
 	struct dma_buf_attachment	*attachment;
 	struct sg_table			*sgt;
 	dma_addr_t			daddr;
-	phys_addr_t			paddr;
 	void				*vaddr;
 	size_t				size;
 };

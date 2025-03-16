@@ -153,7 +153,7 @@ int mfc_mem_ion_alloc(struct mfc_dev *dev,
 		goto err_vaddr;
 	}
 
-	special_buf->paddr = page_to_phys(sg_page(special_buf->sgt->sgl));
+	//special_buf->paddr = page_to_phys(sg_page(special_buf->sgt->sgl));
 
 	return 0;
 err_vaddr:

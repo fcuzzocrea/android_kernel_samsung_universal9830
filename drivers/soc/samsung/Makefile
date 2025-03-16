@@ -56,6 +56,9 @@ obj-$(CONFIG_ARCH_EXYNOS)	+= exynos-cpuhp.o
 # CPU Power Management
 obj-$(CONFIG_EXYNOS_CPUPM)	+= exynos-cpupm.o
 
+# Exynos Memlogger
+obj-$(CONFIG_EXYNOS_MEMORY_LOGGER)      += memlogger.o
+
 # Exynos Secure Log
 obj-$(CONFIG_EXYNOS_SECURE_LOG)	+= exynos-seclog.o
 
@@ -82,6 +85,9 @@ obj-$(CONFIG_EXYNOS_HDCP2)  += exynos-hdcp/
 
 # secmem
 obj-$(CONFIG_ARCH_EXYNOS)       += secmem.o
+
+# Exynos Subsystem
+obj-$(CONFIG_EXYNOS_SYSTEM_EVENT)       += sysevent.o sysevent_notif.o
 
 # Exynos Image Loader
 obj-$(CONFIG_EXYNOS_IMGLOADER)       += imgloader.o

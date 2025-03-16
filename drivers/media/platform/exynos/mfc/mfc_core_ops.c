@@ -101,6 +101,19 @@ err_hw_init:
 	mfc_core_pm_power_off(core);
 
 err_common_ctx:
+#if IS_ENABLED(CONFIG_EXYNOS_CONTENT_PATH_PROTECTION)
+	if (core->fw.drm_status) {
+		int smc_ret = 0;
+		core->fw.drm_status = 0;
+		/* Request buffer unprotection for DRM F/W */
+		smc_ret = exynos_smc(SMC_DRM_PPMP_MFCFW_UNPROT,
+					core->drm_fw_buf.daddr, 0, 0);
+		if (smc_ret != DRMDRV_OK) {
+			mfc_core_err("failed MFC DRM F/W unprot(%#x)\n", smc_ret);
+			call_dop(core, dump_and_stop_debug_mode, core);
+		}
+	}
+#endif
 
 err_fw_load:
 	del_timer(&core->meerkat_timer);
